@@ -132,6 +132,8 @@ class _SaleTabState extends State<SaleTab> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
+                  child: SizedBox(
+                    height: 36,
                     child: ElevatedButton.icon(
                       onPressed: canSubmit
                           ? () {
@@ -149,11 +151,16 @@ class _SaleTabState extends State<SaleTab> {
                       label: const Text('Submit'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 14),
+                        disabledBackgroundColor: Colors.green.withOpacity(0.35),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(80),
+                        ),
                       ),
                     ),
                   ),
+                ),
+
                 ],
               ),
             ]),

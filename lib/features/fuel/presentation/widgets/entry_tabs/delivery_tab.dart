@@ -68,7 +68,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
     setState(() {});
   }
 
-  /* ===================== INPUT STYLE ===================== */
+  /* ===================== INPUT DECORATION ===================== */
 
   InputDecoration _input(String label) {
     return InputDecoration(
@@ -77,7 +77,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
       filled: true,
       fillColor: Colors.white.withOpacity(0.04),
       isDense: true,
-      constraints: const BoxConstraints(minHeight: 48), // 🔥 pixel fix
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       enabledBorder: OutlineInputBorder(
@@ -98,7 +97,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          /* ===================== DELIVERY ===================== */
+          /* ===================== DELIVERY INFO ===================== */
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,14 +112,14 @@ class _DeliveryTabState extends State<DeliveryTab> {
                 ),
                 const SizedBox(height: 10),
 
-                // Supplier (Autocomplete) — height locked
-                Autocomplete<String>(
-                  optionsBuilder: (_) => filtered,
-                  onSelected: (v) => supplierCtrl.text = v,
-                  fieldViewBuilder: (_, controller, focusNode, __) =>
-                      SizedBox(
-                    height: 48,
-                    child: TextField(
+                // SUPPLIER (AUTOCOMPLETE — HEIGHT FIXED)
+                SizedBox(
+                  height: 48,
+                  child: Autocomplete<String>(
+                    optionsBuilder: (_) => filtered,
+                    onSelected: (v) => supplierCtrl.text = v,
+                    fieldViewBuilder:
+                        (_, controller, focusNode, __) => TextField(
                       controller: supplierCtrl,
                       focusNode: focusNode,
                       decoration: _input('Supplier'),
@@ -129,8 +128,11 @@ class _DeliveryTabState extends State<DeliveryTab> {
                   ),
                 ),
 
+                const SizedBox(height: 6),
+
                 _dropdown('Fuel Type', fuel, fuels,
                     (v) => setState(() => fuel = v!)),
+
                 _field('Liters Received', litersCtrl),
                 _field('Total Cost (₦)', costCtrl),
               ],
@@ -158,12 +160,32 @@ class _DeliveryTabState extends State<DeliveryTab> {
                   children: [
                     Expanded(child: _field('Amount Paid (₦)', paidCtrl)),
                     const SizedBox(width: 8),
+
+                    // 🔥 SOURCE DROPDOWN — FIXED PROPERLY
                     Expanded(
-                      child: _dropdown(
-                        'Source',
-                        source,
-                        sources,
-                        (v) => setState(() => source = v!),
+                      child: SizedBox(
+                        height: 48,
+                        child: DropdownButtonFormField<String>(
+                          value: source,
+                          isDense: true,
+                          isExpanded: true,
+                          dropdownColor: panelBg,
+                          decoration: _input('Source'),
+                          items: sources
+                              .map(
+                                (e) => DropdownMenuItem(
+                                  value: e,
+                                  child: Text(
+                                    e,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(color: textPrimary),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => source = v!),
+                        ),
                       ),
                     ),
                   ],
@@ -182,7 +204,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
                 const SizedBox(height: 20),
 
-                // Undo + Submit (pixel-safe)
+                // UNDO + SUBMIT
                 Row(
                   children: [
                     Expanded(
@@ -236,24 +258,28 @@ class _DeliveryTabState extends State<DeliveryTab> {
   ) =>
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
-        child: DropdownButtonFormField<String>(
-          value: value,
-          isDense: true,
-          dropdownColor: panelBg,
-          decoration: _input(label),
-          items: items
-              .map(
-                (e) => DropdownMenuItem(
-                  value: e,
-                  child: Text(
-                    e,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: textPrimary),
+        child: SizedBox(
+          height: 48,
+          child: DropdownButtonFormField<String>(
+            value: value,
+            isDense: true,
+            isExpanded: true,
+            dropdownColor: panelBg,
+            decoration: _input(label),
+            items: items
+                .map(
+                  (e) => DropdownMenuItem(
+                    value: e,
+                    child: Text(
+                      e,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: textPrimary),
+                    ),
                   ),
-                ),
-              )
-              .toList(),
-          onChanged: onChanged,
+                )
+                .toList(),
+            onChanged: onChanged,
+          ),
         ),
       );
 
