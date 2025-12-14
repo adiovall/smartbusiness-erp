@@ -69,7 +69,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
 
   @override
   Widget build(BuildContext context) {
-    final level = levels[selected]!; // 🔑 SINGLE SOURCE OF TRUTH
+    final level = levels[selected]!;
     final levelColor = _levelColor(level);
     final isLow = level < 20;
 
@@ -79,7 +79,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: panelBorder),
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 20), // 👈 bottom space
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -98,51 +98,66 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
             children: [
               Expanded(
                 flex: 2,
-                child: DropdownButtonFormField<String>(
-                  value: selected,
-                  dropdownColor: panelBg,
-                  decoration: _inputDecoration('Fuel'),
-                  items: fuels
-                      .map(
-                        (e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(
-                            e.split(' ').first,
-                            style: const TextStyle(color: textPrimary),
+                child: SizedBox(
+                  height: 48, // 🔥 FIXES pixel issue
+                  child: DropdownButtonFormField<String>(
+                    value: selected,
+                    isDense: true,
+                    isExpanded: true,
+                    dropdownColor: panelBg,
+                    decoration: _inputDecoration('Fuel'),
+                    items: fuels
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e,
+                            child: Text(
+                              e,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  const TextStyle(color: textPrimary),
+                            ),
                           ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    setState(() => selected = v!);
-                    _recalculate();
-                  },
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      setState(() => selected = v!);
+                      _recalculate();
+                    },
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: TextField(
-                  controller: capCtrl,
-                  keyboardType: TextInputType.number,
-                  onChanged: (_) => _recalculate(),
-                  decoration: _inputDecoration('Capacity', suffix: 'L'),
-                  style: const TextStyle(color: textPrimary),
+                child: SizedBox(
+                  height: 48,
+                  child: TextField(
+                    controller: capCtrl,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recalculate(),
+                    decoration:
+                        _inputDecoration('Capacity', suffix: 'L'),
+                    style: const TextStyle(color: textPrimary),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: TextField(
-                  controller: levCtrl,
-                  keyboardType: TextInputType.number,
-                  onChanged: (_) => _recalculate(),
-                  decoration: _inputDecoration('Level', suffix: 'L'),
-                  style: const TextStyle(color: textPrimary),
+                child: SizedBox(
+                  height: 48,
+                  child: TextField(
+                    controller: levCtrl,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _recalculate(),
+                    decoration:
+                        _inputDecoration('Level', suffix: 'L'),
+                    style: const TextStyle(color: textPrimary),
+                  ),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
           /* ===== Animated Linear Gauges ===== */
           ...levels.entries.map(
@@ -163,7 +178,8 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
                   Expanded(
                     child: TweenAnimationBuilder<double>(
                       tween: Tween(begin: 0, end: e.value / 100),
-                      duration: const Duration(milliseconds: 900),
+                      duration:
+                          const Duration(milliseconds: 900),
                       curve: Curves.easeOutCubic,
                       builder: (_, value, __) {
                         return LinearProgressIndicator(
@@ -193,63 +209,82 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
             ),
           ),
 
-          const SizedBox(height: 22),
+          const SizedBox(height: 26),
 
-          /* ===== NEEDLE GAUGE (DRIVEN BY LEVEL) ===== */
+          /* ===== NEEDLE GAUGE ===== */
           Center(
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: level),
-              duration: const Duration(milliseconds: 1200),
-              curve: Curves.easeOutCubic,
-              builder: (_, value, __) {
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox(
-                      width: 200,
-                      height: 110,
-                      child: CustomPaint(
-                        painter: _NeedleGaugePainter(
-                          percent: value,
-                          color: levelColor,
-                        ),
-                      ),
-                    ),
+            child: Column(
+              children: [
+                // Fuel label
+                Text(
+                  selected.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
 
-                    // Pulse warning when low
-                    if (isLow)
-                      TweenAnimationBuilder<double>(
-                        tween: Tween(begin: 0.6, end: 1.0),
-                        duration: const Duration(milliseconds: 700),
-                        curve: Curves.easeInOut,
-                        builder: (_, scale, __) {
-                          return Transform.scale(
-                            scale: scale,
-                            child: const Icon(
-                              Icons.warning_amber_rounded,
-                              color: Colors.red,
-                              size: 26,
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: level),
+                  duration:
+                      const Duration(milliseconds: 1200),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, value, __) {
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 200,
+                          height: 110,
+                          child: CustomPaint(
+                            painter: _NeedleGaugePainter(
+                              percent: value,
+                              color: levelColor,
                             ),
-                          );
-                        },
-                      ),
-
-                    Positioned(
-                      bottom: 6,
-                      child: Text(
-                        '${value.toInt()}%',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: levelColor,
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+
+                        if (isLow)
+                          TweenAnimationBuilder<double>(
+                            tween:
+                                Tween(begin: 0.6, end: 1.0),
+                            duration: const Duration(
+                                milliseconds: 700),
+                            curve: Curves.easeInOut,
+                            builder: (_, scale, __) {
+                              return Transform.scale(
+                                scale: scale,
+                                child: const Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: Colors.red,
+                                  size: 26,
+                                ),
+                              );
+                            },
+                          ),
+
+                        Positioned(
+                          bottom: 6,
+                          child: Text(
+                            '${value.toInt()}%',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: levelColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
             ),
           ),
+
+          const SizedBox(height: 10), // 👈 bottom breathing space
         ],
       ),
     );
@@ -285,7 +320,6 @@ class _NeedleGaugePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    // Background arc
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       pi,
@@ -294,7 +328,6 @@ class _NeedleGaugePainter extends CustomPainter {
       bgPaint,
     );
 
-    // Progress arc
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       pi,
@@ -303,7 +336,6 @@ class _NeedleGaugePainter extends CustomPainter {
       arcPaint,
     );
 
-    // Needle
     final angle = pi + pi * (percent / 100);
     final needleLength = radius - 10;
 
@@ -320,7 +352,6 @@ class _NeedleGaugePainter extends CustomPainter {
       needlePaint,
     );
 
-    // Needle hub
     canvas.drawCircle(
       center,
       5,
