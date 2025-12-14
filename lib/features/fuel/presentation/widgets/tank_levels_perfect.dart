@@ -22,8 +22,10 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
   final fuels = ['Petrol (PMS)', 'Diesel (AGO)', 'Kerosene (HHK)', 'Gas (LPG)'];
   String selected = 'Petrol (PMS)';
 
-  final TextEditingController capCtrl = TextEditingController(text: '33000');
-  final TextEditingController levCtrl = TextEditingController(text: '18000');
+  final TextEditingController capCtrl =
+      TextEditingController(text: '33000');
+  final TextEditingController levCtrl =
+      TextEditingController(text: '18000');
 
   final Map<String, double> levels = {
     'Petrol (PMS)': 54.5,
@@ -31,6 +33,8 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     'Kerosene (HHK)': 56.0,
     'Gas (LPG)': 38.0,
   };
+
+  /* ===================== HELPERS ===================== */
 
   void _recalculate() {
     final cap = double.tryParse(capCtrl.text) ?? 0;
@@ -44,6 +48,18 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
 
   Color _levelColor(double v) =>
       v > 50 ? Colors.green : v > 20 ? Colors.orange : Colors.red;
+
+  String _meterStatus(double percent) {
+    if (percent < 20) return 'CRITICAL';
+    if (percent < 50) return 'LOW';
+    return 'IN STOCK';
+  }
+
+  Color _meterStatusColor(double percent) {
+    if (percent < 20) return Colors.red;
+    if (percent < 50) return Colors.orange;
+    return Colors.green;
+  }
 
   InputDecoration _inputDecoration(String label, {String? suffix}) {
     return InputDecoration(
@@ -67,11 +83,16 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     );
   }
 
+  /* ===================== BUILD ===================== */
+
   @override
   Widget build(BuildContext context) {
     final level = levels[selected]!;
     final levelColor = _levelColor(level);
     final isLow = level < 20;
+
+    final capacity = double.tryParse(capCtrl.text) ?? 0;
+    final currentLiters = capacity * (level / 100);
 
     return Container(
       decoration: BoxDecoration(
@@ -79,7 +100,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: panelBorder),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 20), // 👈 bottom space
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -91,7 +112,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
               color: textPrimary,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
 
           /* ===== Fuel + Capacity + Level ===== */
           Row(
@@ -99,7 +120,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
               Expanded(
                 flex: 2,
                 child: SizedBox(
-                  height: 48, // 🔥 FIXES pixel issue
+                  height: 48,
                   child: DropdownButtonFormField<String>(
                     value: selected,
                     isDense: true,
@@ -159,7 +180,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
 
           const SizedBox(height: 18),
 
-          /* ===== Animated Linear Gauges ===== */
+          /* ===== Linear Gauges ===== */
           ...levels.entries.map(
             (e) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -211,15 +232,14 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
 
           const SizedBox(height: 26),
 
-          /* ===== NEEDLE GAUGE ===== */
+          /* ===== NEEDLE GAUGE + CAPTION ===== */
           Center(
             child: Column(
               children: [
-                // Fuel label
                 Text(
-                  selected.toUpperCase(),
+                  selected.split(' ').last.replaceAll('(', '').replaceAll(')', ''),
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: textPrimary,
                   ),
@@ -280,18 +300,42 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
                     );
                   },
                 ),
+
+                const SizedBox(height: 6),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '${currentLiters.toStringAsFixed(0)} / ${capacity.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: textPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _meterStatus(level),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                        color: _meterStatusColor(level),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-
-          const SizedBox(height: 10), // 👈 bottom breathing space
         ],
       ),
     );
   }
 }
 
-/* ===================== NEEDLE GAUGE PAINTER ===================== */
+/* ===================== NEEDLE PAINTER ===================== */
 
 class _NeedleGaugePainter extends CustomPainter {
   final double percent;

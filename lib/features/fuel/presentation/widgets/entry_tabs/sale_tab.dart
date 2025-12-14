@@ -263,7 +263,8 @@ class _SaleTabState extends State<SaleTab> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: const Color.fromARGB(255, 117, 157, 244).withOpacity(0.4),
+        // color: Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: inputBorder),
       ),
@@ -524,7 +525,7 @@ class _SaleTabState extends State<SaleTab> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: SizedBox(
-                        height: 48,
+                        height: 35,
                         child: ElevatedButton.icon(
                           onPressed: canSubmit
                               ? () {
@@ -542,12 +543,12 @@ class _SaleTabState extends State<SaleTab> {
                                 }
                               : null,
                           icon: const Icon(Icons.check_circle),
-                          label: const Text('Submit Sale'),
+                          label: const Text('Submit'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
                             disabledBackgroundColor: Colors.green.withOpacity(0.35),
                             foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                           ),
                         ),
                       ),
