@@ -1,12 +1,35 @@
+// lib/features/fuel/presentation/widgets/entry_tabs/settlement_tab.dart
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 /* ===================== COLORS ===================== */
 
-const panelBg = Color(0xFF0f172a);
+const panelBg = Color(0xFF111827);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
 const inputBorder = Color(0xFF334155);
+
+/* ===================== MODEL ===================== */
+
+class DebtRecord {
+  final String supplier;
+  final String fuel;
+  final String source;
+  final double amount;
+  final DateTime date;
+
+  DebtRecord({
+    required this.supplier,
+    required this.fuel,
+    required this.source,
+    required this.amount,
+    required this.date,
+  });
+}
+
+/* ===================== WIDGET ===================== */
 
 class SettlementTab extends StatefulWidget {
   final VoidCallback onSubmitted;
@@ -28,40 +51,63 @@ class _SettlementTabState extends State<SettlementTab> {
   final salesCtrl = TextEditingController();
   final extCtrl = TextEditingController();
 
-  // 🔹 MOCK DEBTS (replace later with DB)
-  final List<Map<String, dynamic>> debts = [
-    {'supplier': 'Onyis Fuel', 'fuel': 'Gas (LPG)', 'amount': 50000.0},
-    {'supplier': 'Val Oil', 'fuel': 'Gas (LPG)', 'amount': 500000.0},
+  int? selectedIndex;
+
+  final money = NumberFormat.currency(
+    locale: 'en_NG',
+    symbol: '₦',
+    decimalDigits: 2,
+  );
+
+  /* ===================== MOCK DEBTS ===================== */
+  final List<DebtRecord> debts = [
+    DebtRecord(
+      supplier: 'Onyis Fuel',
+      fuel: 'Gas (LPG)',
+      source: 'External',
+      amount: 50000,
+      date: DateTime.now().subtract(const Duration(days: 2)),
+    ),
+    DebtRecord(
+      supplier: 'Val Oil',
+      fuel: 'Gas (LPG)',
+      source: 'Sales',
+      amount: 500000,
+      date: DateTime.now().subtract(const Duration(days: 1)),
+    ),
   ];
 
-  double get totalOutstanding =>
-      debts.fold(0, (sum, d) => sum + d['amount']);
+  double get totalDebt =>
+      debts.fold(0, (sum, d) => sum + d.amount);
+
+  double get overPaid => 0; // placeholder for future logic
 
   void _undo() {
     salesCtrl.clear();
     extCtrl.clear();
+    selectedIndex = null;
     setState(() {});
   }
 
-  InputDecoration _input(String label) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(color: textSecondary),
-      filled: true,
-      fillColor: Colors.white.withOpacity(0.04),
-      isDense: true,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      enabledBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: inputBorder),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.blue),
-        borderRadius: BorderRadius.circular(8),
-      ),
-    );
-  }
+  /* ===================== INPUT ===================== */
+
+  InputDecoration _input(String label) => InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: textSecondary),
+        filled: true,
+        fillColor: Colors.white.withOpacity(0.05),
+        isDense: true,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: inputBorder),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Colors.blue),
+          borderRadius: BorderRadius.circular(8),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +116,8 @@ class _SettlementTabState extends State<SettlementTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          /* ===================== SETTLEMENT FORM ===================== */
+          /* ===================== FORM ===================== */
+
           Row(
             children: [
               Expanded(
@@ -81,25 +128,25 @@ class _SettlementTabState extends State<SettlementTab> {
                   (v) => setState(() => supplier = v!),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: _dropdown(
-                  'Fuel Type',
+                  'Fuel',
                   fuel,
                   fuels,
                   (v) => setState(() => fuel = v!),
                 ),
               ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _dropdown(
+                  'Source',
+                  source,
+                  sources,
+                  (v) => setState(() => source = v!),
+                ),
+              ),
             ],
-          ),
-
-          const SizedBox(height: 12),
-
-          _dropdown(
-            'Source',
-            source,
-            sources,
-            (v) => setState(() => source = v!),
           ),
 
           const SizedBox(height: 12),
@@ -110,7 +157,6 @@ class _SettlementTabState extends State<SettlementTab> {
                 child: _field(
                   'Sales Amount (₦)',
                   salesCtrl,
-                  enabled: source != 'External',
                 ),
               ),
               const SizedBox(width: 12),
@@ -118,7 +164,36 @@ class _SettlementTabState extends State<SettlementTab> {
                 child: _field(
                   'External Amount (₦)',
                   extCtrl,
-                  enabled: source != 'Sales',
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _undo,
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Undo'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: selectedIndex == null
+                      ? null
+                      : () {
+                          widget.onSubmitted();
+                          _undo();
+                        },
+                  icon: const Icon(Icons.payment),
+                  label: const Text('Settle'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                  ),
                 ),
               ),
             ],
@@ -126,68 +201,32 @@ class _SettlementTabState extends State<SettlementTab> {
 
           const SizedBox(height: 20),
 
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: _undo,
-                    icon: const Icon(Icons.undo),
-                    label: const Text('Undo'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: textSecondary,
-                      side: const BorderSide(color: inputBorder),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      widget.onSubmitted();
-                      _undo();
-                    },
-                    icon: const Icon(Icons.payment),
-                    label: const Text('Settle'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          /* ===================== SUMMARY ===================== */
 
-          const SizedBox(height: 30),
-
-          /* ===================== OUTSTANDING DEBTS ===================== */
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Outstanding Supplier Debts',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: textPrimary,
-                ),
+              _summaryChip(
+                'Outstanding',
+                money.format(totalDebt),
+                totalDebt > 0 ? Colors.red : Colors.green,
               ),
-              Text(
-                'Total: ₦${totalOutstanding.toStringAsFixed(0)}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: textPrimary,
-                ),
+              _summaryChip(
+                'Total Debt',
+                money.format(totalDebt),
+                Colors.orange,
+              ),
+              _summaryChip(
+                'Overpaid',
+                money.format(overPaid),
+                Colors.green,
               ),
             ],
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+
+          /* ===================== DEBT LIST ===================== */
 
           Expanded(
             child: ListView.separated(
@@ -195,45 +234,54 @@ class _SettlementTabState extends State<SettlementTab> {
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (_, i) {
                 final d = debts[i];
-                return Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: panelBorder),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              d['supplier'],
-                              style: const TextStyle(
-                                color: textPrimary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              d['fuel'],
-                              style: const TextStyle(
-                                color: textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+
+                return GestureDetector(
+                  onTap: () => setState(() => selectedIndex = i),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: selectedIndex == i
+                          ? Colors.blue.withOpacity(0.15)
+                          : Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: panelBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Line 1
+                        Text(
+                          '${d.supplier} • ${d.fuel} • ${d.source}',
+                          style: const TextStyle(
+                            color: textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                      Text(
-                        '₦${d['amount'].toStringAsFixed(0)}',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange,
+
+                        const SizedBox(height: 4),
+
+                        // Line 2
+                        Text(
+                          '${DateFormat('dd MMM yyyy').format(d.date)} • ${money.format(d.amount)}',
+                          style: const TextStyle(
+                            color: textSecondary,
+                            fontSize: 12,
+                          ),
                         ),
-                      ),
-                    ],
+
+                        const SizedBox(height: 6),
+
+                        // Line 3
+                        Text(
+                          'DEBT ${money.format(d.amount)}',
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -245,6 +293,23 @@ class _SettlementTabState extends State<SettlementTab> {
   }
 
   /* ===================== HELPERS ===================== */
+
+  Widget _summaryChip(String label, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: textSecondary)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _dropdown(
     String label,
@@ -258,16 +323,12 @@ class _SettlementTabState extends State<SettlementTab> {
           value: value,
           isDense: true,
           isExpanded: true,
-          dropdownColor: panelBg,
           decoration: _input(label),
           items: items
               .map(
                 (e) => DropdownMenuItem(
                   value: e,
-                  child: Text(
-                    e,
-                    style: const TextStyle(color: textPrimary),
-                  ),
+                  child: Text(e, style: const TextStyle(color: textPrimary)),
                 ),
               )
               .toList(),
@@ -275,16 +336,10 @@ class _SettlementTabState extends State<SettlementTab> {
         ),
       );
 
-  Widget _field(
-    String label,
-    TextEditingController ctrl, {
-    bool enabled = true,
-  }) =>
-      SizedBox(
+  Widget _field(String label, TextEditingController ctrl) => SizedBox(
         height: 48,
         child: TextField(
           controller: ctrl,
-          enabled: enabled,
           keyboardType: TextInputType.number,
           decoration: _input(label),
           style: const TextStyle(color: textPrimary),
