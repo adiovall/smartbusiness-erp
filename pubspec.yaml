@@ -38,9 +38,18 @@ dependencies:
   syncfusion_flutter_datepicker: ^31.2.18
   intl: ^0.20.2
 
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.2
+
+  path: ^1.9.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+
+  
+  
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
