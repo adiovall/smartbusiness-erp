@@ -1,34 +1,40 @@
+// lib/core/services/tank_service.dart
+
 import '../models/tank_state.dart';
+import '../../features/fuel/repositories/tank_repo.dart';
 
 class TankService {
+  final TankRepo repo;
   final Map<String, TankState> _tanks = {};
 
-  /// Register a tank (call once at startup)
-  void registerTank(TankState tank) {
-    _tanks[tank.fuelType] = tank;
-  }
+  TankService(this.repo);
 
-  /// Get tank by fuel type
-  TankState getTank(String fuelType) {
-    final tank = _tanks[fuelType];
-    if (tank == null) {
-      throw Exception('Tank not registered for $fuelType');
+  /// Load tanks from DB on startup
+  Future<void> loadFromDb() async {
+    final rows = await repo.fetchAll();
+    _tanks.clear();
+
+    for (final t in rows) {
+      _tanks[t.fuelType] = t;
     }
-    return tank;
   }
 
-  /// Add fuel (Delivery)
   void addFuel(String fuelType, double liters) {
-    final tank = getTank(fuelType);
+    final tank = _tanks[fuelType];
+    if (tank == null) return;
+
     tank.addFuel(liters);
+    repo.save(tank);
   }
 
-  /// Remove fuel (Sale)
   void removeFuel(String fuelType, double liters) {
-    final tank = getTank(fuelType);
+    final tank = _tanks[fuelType];
+    if (tank == null) return;
+
     tank.removeFuel(liters);
+    repo.save(tank);
   }
 
-  /// For analytics / UI
-  List<TankState> get allTanks => _tanks.values.toList();
+  List<TankState> get allTanks =>
+      _tanks.values.toList();
 }

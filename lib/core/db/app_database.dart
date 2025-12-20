@@ -1,8 +1,6 @@
 // lib/core/db/app_database.dart
 
-import 'dart:io';
 import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class AppDatabase {
@@ -11,7 +9,7 @@ class AppDatabase {
   static Future<Database> get instance async {
     if (_db != null) return _db!;
 
-    // Required for Windows / Desktop
+    // ✅ Required for Windows / Desktop
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
 
@@ -27,7 +25,7 @@ class AppDatabase {
   }
 
   static Future<void> _onCreate(Database db, int version) async {
-    // SALES
+     // SALES
     await db.execute('''
       CREATE TABLE sales (
         id TEXT PRIMARY KEY,
@@ -39,8 +37,7 @@ class AppDatabase {
         totalAmount REAL
       )
     ''');
-
-    // DELIVERIES
+    //DELIVERY
     await db.execute('''
       CREATE TABLE deliveries (
         id TEXT PRIMARY KEY,
@@ -56,7 +53,7 @@ class AppDatabase {
       )
     ''');
 
-    // DEBTS
+    // DEBT
     await db.execute('''
       CREATE TABLE debts (
         id TEXT PRIMARY KEY,

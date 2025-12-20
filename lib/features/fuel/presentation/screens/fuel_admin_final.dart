@@ -8,6 +8,9 @@ import '../widgets/entry_tabs/settlement_tab.dart';
 import '../widgets/entry_tabs/external_payments_tab.dart';
 import '../widgets/tank_levels_perfect.dart';
 import '../widgets/weekly_summary_perfect.dart';
+import '../../../../core/services/service_registry.dart';
+
+
 
 class FuelAdminFinal extends StatefulWidget {
   const FuelAdminFinal({super.key});
@@ -26,11 +29,19 @@ class _FuelAdminFinalState extends State<FuelAdminFinal> with SingleTickerProvid
   final Map<String, Map<String, bool>> weeklyStatus = {};
 
   @override
-  void initState() {
-    super.initState();
-    tabController = TabController(length: 5, vsync: this);
-    _initWeekly();
-  }
+void initState() {
+  super.initState();
+  tabController = TabController(length: 5, vsync: this);
+
+  Future.microtask(() async {
+    await Services.init();
+    setState(() {}); // refresh UI after DB load
+  });
+
+  _initWeekly();
+}
+
+
 
   void _initWeekly() {
     final start = today.subtract(Duration(days: today.weekday - 1));

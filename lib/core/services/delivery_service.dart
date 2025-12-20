@@ -1,49 +1,51 @@
+// lib/core/services/delivery_service.dart
+
 import '../models/delivery_record.dart';
 import 'tank_service.dart';
 import 'debt_service.dart';
+import '../../features/fuel/repositories/delivery_repo.dart';
 
 class DeliveryService {
   final TankService tankService;
   final DebtService debtService;
+  final DeliveryRepo deliveryRepo;
 
   final List<DeliveryRecord> _deliveries = [];
 
   DeliveryService({
     required this.tankService,
     required this.debtService,
+    required this.deliveryRepo,
   });
 
-  DeliveryRecord recordDelivery({
+  Future<DeliveryRecord> recordDelivery({
     required String supplier,
     required String fuelType,
     required double liters,
     required double totalCost,
     required double amountPaid,
     required String source,
-  }) {
+  }) async {
     if (liters <= 0) {
       throw Exception('Delivered liters must be greater than zero');
     }
-
     if (totalCost < 0 || amountPaid < 0) {
       throw Exception('Amounts cannot be negative');
     }
 
     // 1️⃣ APPLY EXISTING CREDIT FIRST
-    final double creditAvailable =
-        totalCreditForSupplier(supplier);
+    final double creditAvailable = totalCreditForSupplier(supplier);
 
     double adjustedCost = totalCost;
-    double usedCredit = 0;
 
     if (creditAvailable > 0) {
-      usedCredit =
+      final usedCredit =
           creditAvailable >= totalCost ? totalCost : creditAvailable;
       adjustedCost -= usedCredit;
       _consumeCredit(supplier, usedCredit);
     }
 
-    // 2️⃣ Calculate final difference
+    // 2️⃣ Final difference after credit
     final diff = amountPaid - adjustedCost;
 
     double debt = 0;
@@ -73,6 +75,7 @@ class DeliveryService {
     );
 
     _deliveries.add(delivery);
+    await deliveryRepo.insert(delivery);
 
     // 5️⃣ Create debt ONLY
     if (debt > 0) {
@@ -89,7 +92,7 @@ class DeliveryService {
   /// TOTAL CREDIT FOR SUPPLIER
   double totalCreditForSupplier(String supplier) {
     return _deliveries
-        .where((d) => d.supplier == supplier)
+        .where((d) => d.supplier == supplier && d.credit > 0)
         .fold(0.0, (sum, d) => sum + d.credit);
   }
 
@@ -111,13 +114,36 @@ class DeliveryService {
   List<DeliveryRecord> get todayDeliveries =>
       _deliveries.where((d) => _isToday(d.date)).toList();
 
-  List<DeliveryRecord> get allDeliveries =>
-      List.unmodifiable(_deliveries);
+  List<DeliveryRecord> get allDeliveries => List.unmodifiable(_deliveries);
 
   bool _isToday(DateTime d) {
     final now = DateTime.now();
-    return d.year == now.year &&
-        d.month == now.month &&
-        d.day == now.day;
+    return d.year == now.year && d.month == now.month && d.day == now.day;
+  }
+
+  /// ✅ Add CREDIT without affecting tank stock (used by settlement)
+  Future<void> addCredit({
+    required String supplier,
+    required String fuelType,
+    required double amount,
+    required String source,
+  }) async {
+    if (amount <= 0) return;
+
+    final creditRecord = DeliveryRecord(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      date: DateTime.now(),
+      supplier: supplier,
+      fuelType: fuelType,
+      liters: 0,
+      totalCost: 0,
+      amountPaid: 0,
+      source: source,
+      debt: 0,
+      credit: amount,
+    );
+
+    _deliveries.add(creditRecord);
+    await deliveryRepo.insert(creditRecord);
   }
 }

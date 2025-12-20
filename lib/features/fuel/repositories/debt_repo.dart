@@ -1,5 +1,5 @@
-
 // lib/features/fuel/repositories/debt_repo.dart
+
 import 'package:sqflite/sqflite.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/models/debt_record.dart';
@@ -35,5 +35,22 @@ class DebtRepo {
       whereArgs: [d.id],
     );
   }
-}
 
+  /// ✅ REQUIRED BY DebtService
+  Future<List<DebtRecord>> fetchAll() async {
+    final db = await AppDatabase.instance;
+
+    final rows = await db.query('debts');
+
+    return rows.map((r) {
+      return DebtRecord(
+        id: r['id'] as String,
+        supplier: r['supplier'] as String,
+        fuelType: r['fuelType'] as String,
+        amount: (r['amount'] as num).toDouble(),
+        createdAt: DateTime.parse(r['createdAt'] as String),
+        settled: (r['settled'] as int) == 1,
+      );
+    }).toList();
+  }
+}

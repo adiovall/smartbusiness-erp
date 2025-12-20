@@ -6,8 +6,8 @@ class ExpenseRecord {
   final double amount;
   final String category;
   final String comment;
-  final String source; // e.g. Sales, Delivery
-  final String? refId; // links to SaleRecord
+  final String source;
+  final String? refId;
   final bool isLocked;
 
   ExpenseRecord({
@@ -29,6 +29,19 @@ class ExpenseRecord {
         'comment': comment,
         'source': source,
         'refId': refId,
-        'isLocked': isLocked,
+        'isLocked': isLocked ? 1 : 0,
       };
+
+  factory ExpenseRecord.fromJson(Map<String, dynamic> json) {
+    return ExpenseRecord(
+      id: json['id'] as String,
+      date: DateTime.parse(json['date'] as String),
+      amount: (json['amount'] as num).toDouble(),
+      category: json['category'] as String,
+      comment: json['comment'] as String,
+      source: json['source'] as String,
+      refId: json['refId'] as String?,
+      isLocked: (json['isLocked'] as int) == 1,
+    );
+  }
 }

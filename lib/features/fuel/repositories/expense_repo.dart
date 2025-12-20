@@ -1,4 +1,4 @@
-//lib/features/fuel/repositories/expense_repo.dart
+// lib/features/fuel/repositories/expense_repo.dart
 
 import 'package:sqflite/sqflite.dart';
 import '../../../core/db/app_database.dart';
@@ -22,5 +22,30 @@ class ExpenseRepo {
       where: 'refId = ?',
       whereArgs: [refId],
     );
+  }
+
+  /// 📥 Fetch all expenses
+  Future<List<ExpenseRecord>> fetchAll() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query('expenses');
+
+    return rows.map((e) => ExpenseRecord.fromJson(e)).toList();
+  }
+
+  /// 📅 Fetch today’s expenses
+  Future<List<ExpenseRecord>> fetchToday() async {
+    final db = await AppDatabase.instance;
+
+    final today = DateTime.now();
+    final start = DateTime(today.year, today.month, today.day)
+        .toIso8601String();
+
+    final rows = await db.query(
+      'expenses',
+      where: 'date >= ?',
+      whereArgs: [start],
+    );
+
+    return rows.map((e) => ExpenseRecord.fromJson(e)).toList();
   }
 }

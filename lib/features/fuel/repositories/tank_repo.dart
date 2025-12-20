@@ -1,7 +1,6 @@
 
+// lib/features/fuel/repositories/tank_repo.dart
 
-
-//lib/features/fuel/repositories/tank_repo.dart
 import 'package:sqflite/sqflite.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/models/tank_state.dart';
@@ -19,5 +18,19 @@ class TankRepo {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// ✅ REQUIRED
+  Future<List<TankState>> fetchAll() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query('tanks');
+
+    return rows.map((r) {
+      return TankState(
+        fuelType: r['fuelType'] as String,
+        capacity: (r['capacity'] as num).toDouble(),
+        currentLevel: (r['currentLevel'] as num).toDouble(),
+      );
+    }).toList();
   }
 }

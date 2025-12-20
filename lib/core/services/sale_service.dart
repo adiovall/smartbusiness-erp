@@ -2,6 +2,7 @@
 
 import 'dart:math';
 import '../models/sale_record.dart';
+import '../../features/fuel/repositories/sale_repo.dart';
 import 'tank_service.dart';
 
 class SaleMismatch {
@@ -11,6 +12,7 @@ class SaleMismatch {
 
 class SaleService {
   final TankService tankService;
+  final SaleRepo saleRepo;
 
   /// Temporary (unsubmitted) pump records
   final List<SaleRecord> _draftSales = [];
@@ -18,7 +20,10 @@ class SaleService {
   /// Committed sales
   final List<SaleRecord> _sales = [];
 
-  SaleService(this.tankService);
+  SaleService({
+    required this.tankService,
+    required this.saleRepo,
+  });
 
   /// Record ONE pump (DRAFT only)
   SaleRecord recordSale({
@@ -64,12 +69,12 @@ class SaleService {
     return null;
   }
 
-  /// ✅ FINAL SUBMIT (commit everything)
-  void submitSales() {
+  /// ✅ FINAL SUBMIT (commit + persist)
+  Future<void> submitSales() async {
     for (final sale in _draftSales) {
-      // reduce tank ONLY here
       tankService.removeFuel(sale.fuelType, sale.liters);
       _sales.add(sale);
+      await saleRepo.insert(sale);
     }
     _draftSales.clear();
   }

@@ -23,8 +23,8 @@ class SaleRepo {
       date: DateTime.parse(r['date'] as String),
       pumpNo: r['pumpNo'] as String,
       fuelType: r['fuelType'] as String,
-      liters: r['liters'] as double,
-      unitPrice: r['unitPrice'] as double,
+      liters: (r['liters'] as num).toDouble(),
+      unitPrice: (r['unitPrice'] as num).toDouble(),
     )).toList();
   }
 }
