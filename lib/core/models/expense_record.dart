@@ -29,7 +29,7 @@ class ExpenseRecord {
         'comment': comment,
         'source': source,
         'refId': refId,
-        'isLocked': isLocked ? 1 : 0,
+        'isLocked': isLocked ? 1 : 0, // ✅ store as int for sqlite
       };
 
   factory ExpenseRecord.fromJson(Map<String, dynamic> json) {
@@ -41,7 +41,7 @@ class ExpenseRecord {
       comment: json['comment'] as String,
       source: json['source'] as String,
       refId: json['refId'] as String?,
-      isLocked: (json['isLocked'] as int) == 1,
+      isLocked: (json['isLocked'] as int? ?? 0) == 1,
     );
   }
 }

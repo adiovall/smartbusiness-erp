@@ -25,5 +25,30 @@ class DeliveryRepo {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
-}
 
+  /// ✅ REQUIRED
+  Future<List<DeliveryRecord>> fetchAll() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query('deliveries', orderBy: 'date DESC');
+    return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
+  }
+
+  /// ✅ OPTIONAL (nice for UI)
+  Future<List<DeliveryRecord>> fetchToday() async {
+    final db = await AppDatabase.instance;
+
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).toIso8601String();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59)
+        .toIso8601String();
+
+    final rows = await db.query(
+      'deliveries',
+      where: 'date BETWEEN ? AND ?',
+      whereArgs: [start, end],
+      orderBy: 'date DESC',
+    );
+
+    return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
+  }
+}

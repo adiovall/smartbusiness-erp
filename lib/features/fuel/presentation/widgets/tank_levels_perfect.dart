@@ -1,5 +1,8 @@
+// lib/features/fuel/presentation/widgets/tank_levels_perfect.dart
+
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../../../../core/models/tank_state.dart';
 
 /* ===================== COLORS ===================== */
 
@@ -7,44 +10,21 @@ const panelBg = Color(0xFF0f172a);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
-const inputBorder = Color(0xFF334155);
 
 /* ===================== WIDGET ===================== */
 
-class TankLevelsPerfect extends StatefulWidget {
-  const TankLevelsPerfect({super.key});
+class TankLevelsPerfect extends StatelessWidget {
+  final List<TankState> tanks;
 
-  @override
-  State<TankLevelsPerfect> createState() => _TankLevelsPerfectState();
-}
-
-class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
-  final fuels = ['Petrol (PMS)', 'Diesel (AGO)', 'Kerosene (HHK)', 'Gas (LPG)'];
-  String selected = 'Petrol (PMS)';
-
-  final TextEditingController capCtrl =
-      TextEditingController(text: '33000');
-  final TextEditingController levCtrl =
-      TextEditingController(text: '18000');
-
-  final Map<String, double> levels = {
-    'Petrol (PMS)': 54.5,
-    'Diesel (AGO)': 80.0,
-    'Kerosene (HHK)': 56.0,
-    'Gas (LPG)': 38.0,
-  };
+  const TankLevelsPerfect({
+    super.key,
+    required this.tanks,
+  });
 
   /* ===================== HELPERS ===================== */
 
-  void _recalculate() {
-    final cap = double.tryParse(capCtrl.text) ?? 0;
-    final lev = double.tryParse(levCtrl.text) ?? 0;
-    if (cap <= 0) return;
-
-    setState(() {
-      levels[selected] = (lev / cap * 100).clamp(0, 100);
-    });
-  }
+  double _percent(TankState t) =>
+      t.capacity <= 0 ? 0 : (t.currentLevel / t.capacity * 100).clamp(0, 100);
 
   Color _levelColor(double v) =>
       v > 50 ? Colors.green : v > 20 ? Colors.orange : Colors.red;
@@ -61,38 +41,13 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     return Colors.green;
   }
 
-  InputDecoration _inputDecoration(String label, {String? suffix}) {
-    return InputDecoration(
-      labelText: label,
-      suffixText: suffix,
-      labelStyle: const TextStyle(color: textSecondary),
-      suffixStyle: const TextStyle(color: textSecondary),
-      filled: true,
-      fillColor: Colors.white.withOpacity(0.04),
-      isDense: true,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      enabledBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: inputBorder),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.green),
-        borderRadius: BorderRadius.circular(8),
-      ),
-    );
-  }
-
   /* ===================== BUILD ===================== */
 
   @override
   Widget build(BuildContext context) {
-    final level = levels[selected]!;
-    final levelColor = _levelColor(level);
-    final isLow = level < 20;
-
-    final capacity = double.tryParse(capCtrl.text) ?? 0;
-    final currentLiters = capacity * (level / 100);
+    if (tanks.isEmpty) {
+      return _emptyState();
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -112,84 +67,19 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
               color: textPrimary,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
 
-          /* ===== Fuel + Capacity + Level ===== */
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: SizedBox(
-                  height: 48,
-                  child: DropdownButtonFormField<String>(
-                    value: selected,
-                    isDense: true,
-                    isExpanded: true,
-                    dropdownColor: panelBg,
-                    decoration: _inputDecoration('Fuel'),
-                    items: fuels
-                        .map(
-                          (e) => DropdownMenuItem(
-                            value: e,
-                            child: Text(
-                              e,
-                              overflow: TextOverflow.ellipsis,
-                              style:
-                                  const TextStyle(color: textPrimary),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) {
-                      setState(() => selected = v!);
-                      _recalculate();
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: TextField(
-                    controller: capCtrl,
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => _recalculate(),
-                    decoration:
-                        _inputDecoration('Capacity', suffix: 'L'),
-                    style: const TextStyle(color: textPrimary),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: TextField(
-                    controller: levCtrl,
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => _recalculate(),
-                    decoration:
-                        _inputDecoration('Level', suffix: 'L'),
-                    style: const TextStyle(color: textPrimary),
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 18),
-
-          /* ===== Linear Gauges ===== */
-          ...levels.entries.map(
-            (e) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
+          /* ===== LINEAR GAUGES ===== */
+          ...tanks.map((t) {
+            final percent = _percent(t);
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
                   SizedBox(
                     width: 60,
                     child: Text(
-                      e.key.split(' ').first,
+                      t.fuelType,
                       style: const TextStyle(
                         fontSize: 11,
                         color: textSecondary,
@@ -197,27 +87,19 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
                     ),
                   ),
                   Expanded(
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: e.value / 100),
-                      duration:
-                          const Duration(milliseconds: 900),
-                      curve: Curves.easeOutCubic,
-                      builder: (_, value, __) {
-                        return LinearProgressIndicator(
-                          value: value,
-                          minHeight: 16,
-                          backgroundColor:
-                              Colors.white.withOpacity(0.06),
-                          color: _levelColor(e.value),
-                        );
-                      },
+                    child: LinearProgressIndicator(
+                      value: percent / 100,
+                      minHeight: 16,
+                      backgroundColor:
+                          Colors.white.withOpacity(0.06),
+                      color: _levelColor(percent),
                     ),
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
                     width: 40,
                     child: Text(
-                      '${e.value.toInt()}%',
+                      '${percent.toInt()}%',
                       textAlign: TextAlign.right,
                       style: const TextStyle(
                         fontSize: 11,
@@ -227,109 +109,122 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
                   ),
                 ],
               ),
+            );
+          }),
+
+          const SizedBox(height: 28),
+
+          /* ===== NEEDLE GAUGE (FIRST TANK) ===== */
+          _needleGauge(tanks.first),
+        ],
+      ),
+    );
+  }
+
+  /* ===================== NEEDLE ===================== */
+
+  Widget _needleGauge(TankState t) {
+    final percent = _percent(t);
+    final color = _levelColor(percent);
+    final isLow = percent < 20;
+
+    return Center(
+      child: Column(
+        children: [
+          Text(
+            t.fuelType,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: textPrimary,
             ),
           ),
+          const SizedBox(height: 6),
 
-          const SizedBox(height: 26),
-
-          /* ===== NEEDLE GAUGE + CAPTION ===== */
-          Center(
-            child: Column(
-              children: [
-                Text(
-                  selected.split(' ').last.replaceAll('(', '').replaceAll(')', ''),
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: textPrimary,
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: percent),
+            duration: const Duration(milliseconds: 1000),
+            builder: (_, value, __) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 200,
+                    height: 110,
+                    child: CustomPaint(
+                      painter: _NeedleGaugePainter(
+                        percent: value,
+                        color: color,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
 
-                TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: level),
-                  duration:
-                      const Duration(milliseconds: 1200),
-                  curve: Curves.easeOutCubic,
-                  builder: (_, value, __) {
-                    return Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        SizedBox(
-                          width: 200,
-                          height: 110,
-                          child: CustomPaint(
-                            painter: _NeedleGaugePainter(
-                              percent: value,
-                              color: levelColor,
-                            ),
-                          ),
-                        ),
-
-                        if (isLow)
-                          TweenAnimationBuilder<double>(
-                            tween:
-                                Tween(begin: 0.6, end: 1.0),
-                            duration: const Duration(
-                                milliseconds: 700),
-                            curve: Curves.easeInOut,
-                            builder: (_, scale, __) {
-                              return Transform.scale(
-                                scale: scale,
-                                child: const Icon(
-                                  Icons.warning_amber_rounded,
-                                  color: Colors.red,
-                                  size: 26,
-                                ),
-                              );
-                            },
-                          ),
-
-                        Positioned(
-                          bottom: 6,
-                          child: Text(
-                            '${value.toInt()}%',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: levelColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 6),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${currentLiters.toStringAsFixed(0)} / ${capacity.toStringAsFixed(0)}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: textPrimary,
-                      ),
+                  if (isLow)
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.red,
+                      size: 26,
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _meterStatus(level),
+
+                  Positioned(
+                    bottom: 6,
+                    child: Text(
+                      '${value.toInt()}%',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        letterSpacing: 0.8,
-                        color: _meterStatusColor(level),
+                        color: color,
                       ),
                     ),
-                  ],
+                  ),
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 8),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '${t.currentLevel.toStringAsFixed(0)} / ${t.capacity.toStringAsFixed(0)} L',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: textPrimary,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _meterStatus(percent),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                  color: _meterStatusColor(percent),
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      child: const Center(
+        child: Text(
+          'No tank data available',
+          style: TextStyle(color: textSecondary),
+        ),
       ),
     );
   }
@@ -383,24 +278,18 @@ class _NeedleGaugePainter extends CustomPainter {
     final angle = pi + pi * (percent / 100);
     final needleLength = radius - 10;
 
-    final needlePaint = Paint()
-      ..color = color
-      ..strokeWidth = 3;
-
     canvas.drawLine(
       center,
       Offset(
         center.dx + needleLength * cos(angle),
         center.dy + needleLength * sin(angle),
       ),
-      needlePaint,
+      Paint()
+        ..color = color
+        ..strokeWidth = 3,
     );
 
-    canvas.drawCircle(
-      center,
-      5,
-      Paint()..color = color,
-    );
+    canvas.drawCircle(center, 5, Paint()..color = color);
   }
 
   @override
