@@ -14,9 +14,6 @@ import '../widgets/weekly_summary_perfect.dart';
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/day_entry.dart' as de;
 
-/// =====================
-/// MAIN SCREEN WIDGET
-/// =====================
 class FuelAdminFinal extends StatefulWidget {
   const FuelAdminFinal({super.key});
 
@@ -26,9 +23,6 @@ class FuelAdminFinal extends StatefulWidget {
 
 class _FuelAdminFinalState extends State<FuelAdminFinal>
     with SingleTickerProviderStateMixin {
-  /// =====================
-  /// STATE & CONTROLLERS
-  /// =====================
   late TabController tabController;
 
   final DateTime _now = DateTime.now();
@@ -37,77 +31,73 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   double todaysExpense = 0.0;
   double todaysDelivery = 0.0;
 
-  /// Weekly status map used by WeeklySummaryPerfect
-  /// Key format: "Mon 15"
-  /// Value: {Sale: DayEntryStatus.draft, Del: ..., Exp: ..., Set: ...}
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus = {};
 
-  /// For showing UI only (loading DB on open)
   bool _loading = true;
 
-  /// =====================
-  /// INIT
-  /// =====================
+  // ✅ Needed for horizontal scroll when screen is compressed
+  final ScrollController _mainHScroll = ScrollController();
+  final ScrollController _summaryHScroll = ScrollController();
+
+  // ✅ format with commas
+  final NumberFormat _moneyFmt = NumberFormat.decimalPattern();
+
+  String _money(num v) => _moneyFmt.format(v.round());
+
   @override
   void initState() {
     super.initState();
     tabController = TabController(length: 5, vsync: this);
 
+    // listen to tank updates (for tank widget)
     Services.tank.addListener(_onTankChanged);
 
     Future.microtask(() async {
       await Services.init();
 
-      // === ADD THESE LINES ===
+      // Load today's totals
       final salesTotal = await Services.saleRepo.getTodayTotalAmount();
-      setState(() => todaysSales = salesTotal);
       final expenseTotal = Services.expense.todayTotal;
-
-      if (mounted) {
-        setState(() {
-          todaysSales = salesTotal;
-          todaysExpense = expenseTotal;
-        });
-      }
-      // === END ADD ===
 
       await _loadWeeklyFromDayEntryCache();
 
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        todaysSales = salesTotal;
+        todaysExpense = expenseTotal;
+        _loading = false;
+      });
     });
   }
 
-    void _onTankChanged() {
-      if (mounted) setState(() {}); // Rebuild screen when tank changes
-    }
+  void _onTankChanged() {
+    if (mounted) setState(() {});
+  }
 
-    @override
-    void dispose() {
-      Services.tank.removeListener(_onTankChanged); // ← Clean up
-      tabController.dispose();
-      super.dispose();
-    }
+  @override
+  void dispose() {
+    Services.tank.removeListener(_onTankChanged);
+    tabController.dispose();
+    _mainHScroll.dispose();
+    _summaryHScroll.dispose();
+    super.dispose();
+  }
 
-  /// =====================
-  /// DATE HELPERS
-  /// =====================
+  // =====================
+  // DATE HELPERS
+  // =====================
 
-  /// Business date key for DB (yyyy-MM-dd)
   String _businessDateKey(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
-
-  /// UI key for weekly widget (EEE dd) e.g. Mon 15
   String _uiDayKey(DateTime d) => DateFormat('EEE dd').format(d);
 
-  DateTime _weekStart(DateTime d) =>
-      d.subtract(Duration(days: d.weekday - 1)); // Monday start
+  DateTime _weekStart(DateTime d) => d.subtract(Duration(days: d.weekday - 1));
 
-  /// =====================
-  /// WEEKLY STATUS (DB → UI)
-  /// =====================
+  // =====================
+  // WEEKLY STATUS (DB → UI)
+  // =====================
 
   Future<void> _loadWeeklyFromDayEntryCache() async {
     final start = _weekStart(_now);
-
     weeklyStatus.clear();
 
     for (int i = 0; i < 7; i++) {
@@ -126,23 +116,21 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     }
   }
 
-  /// =====================
-  /// MARK TAB AS DRAFT (YELLOW)
-  /// =====================
+  // =====================
+  // MARK TAB AS DRAFT
+  // =====================
+
   Future<void> _markDraft(String type) async {
     final date = _businessDateKey(_now);
-
     await Services.dayEntry.markDraft(date, type);
-
     await _loadWeeklyFromDayEntryCache();
-
     if (mounted) setState(() {});
   }
 
-  /// =====================
-  /// SEND DATA CONFIRMATION
-  /// (editable submission date will be added later)
-  /// =====================
+  // =====================
+  // SEND DATA CONFIRMATION
+  // =====================
+
   Future<void> _confirmSendData() async {
     final todayUiKey = _uiDayKey(_now);
     final statuses = weeklyStatus[todayUiKey];
@@ -162,10 +150,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF020617),
-        title: const Text(
-          'Send Today’s Data?',
-          style: TextStyle(color: Colors.white),
-        ),
+        title: const Text('Send Today’s Data?', style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -174,17 +159,11 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
             _row('Expense', statuses['Exp'] ?? de.DayEntryStatus.none),
             _row('Settlement', statuses['Set'] ?? de.DayEntryStatus.none),
             const SizedBox(height: 12),
-            Text(
-              'Business Date: $todayUiKey',
-              style: const TextStyle(color: Colors.grey),
-            ),
+            Text('Business Date: $todayUiKey', style: const TextStyle(color: Colors.grey)),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           ElevatedButton.icon(
             icon: const Icon(Icons.send),
             label: const Text('Send'),
@@ -214,44 +193,33 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(
-            child: Text(label, style: const TextStyle(color: Colors.white)),
-          ),
+          Expanded(child: Text(label, style: const TextStyle(color: Colors.white))),
           Icon(icon, color: color, size: 16),
         ],
       ),
     );
   }
 
-
-
-  /// =====================
-  /// FINAL SEND ACTION (GREEN)
-  /// =====================
   Future<void> _sendData() async {
     final date = _businessDateKey(_now);
 
-    // Submit (turns all draft → submitted, keeps none as none)
     await Services.dayEntry.submitDay(
-  businessDate: date,
-  submittedAt: DateTime.now(),
-);
+      businessDate: date,
+      submittedAt: DateTime.now(),
+    );
+
     await _loadWeeklyFromDayEntryCache();
 
-    if (mounted) {
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Data successfully sent'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Data successfully sent'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
-  /// =====================
-  /// HELPERS
-  /// =====================
   void _addSale(double v) => setState(() => todaysSales += v);
   void _addExpense(double v) => setState(() => todaysExpense += v);
   void _addDelivery(double v) => setState(() => todaysDelivery += v);
@@ -260,32 +228,22 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     final todayUiKey = _uiDayKey(_now);
     final m = weeklyStatus[todayUiKey];
     if (m == null) return false;
-
-    // "submitted" means every section is green.
-    // If you want "submitted only for entries that exist", we can adjust later.
     return m.values.every((s) => s == de.DayEntryStatus.submitted);
   }
 
-  /// =====================
-  /// BUILD UI
-  /// =====================
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
         backgroundColor: Color(0xFF0b1220),
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
       body: Row(
         children: [
-          /// =====================
-          /// SIDEBAR
-          /// =====================
+          // SIDEBAR
           Container(
             width: 70,
             color: const Color(0xFF020617),
@@ -303,20 +261,13 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
             ),
           ),
 
-          /// =====================
-          /// MAIN CONTENT
-          /// =====================
+          // MAIN
           Expanded(
             child: Column(
               children: [
-                /// TOP BAR
-                _buildTopBar(),
-
-                /// SUMMARY CARDS
-                _buildSummaryCards(),
-
-                /// MAIN BODY
-                Expanded(child: _buildMainBody()),
+                _buildTopBarResponsive(),
+                _buildSummaryCardsResponsive(),
+                Expanded(child: _buildMainBodyResponsive()),
               ],
             ),
           ),
@@ -325,88 +276,152 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
-  /// =====================
-  /// TOP BAR
-  /// =====================
-  Widget _buildTopBar() {
-    return Container(
-      color: const Color(0xFF0f172a),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-      child: Row(
-        children: [
-          const Text(
-            'SmartBusiness ERP',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+  // =====================
+  // TOP BAR (Responsive)
+  // =====================
+
+  Widget _buildTopBarResponsive() {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final isTight = c.maxWidth < 900;
+
+        final title = const Text(
+          'SmartBusiness ERP',
+          style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
+        );
+
+        final welcome = const Text('Welcome admin', style: TextStyle(color: Colors.white70));
+
+        final date = Text(
+          DateFormat('EEEE, MMM d, yyyy').format(_now),
+          style: const TextStyle(color: Colors.white60),
+        );
+
+        final sendBtn = ElevatedButton.icon(
+          onPressed: isTodaySubmitted ? null : _confirmSendData,
+          icon: const Icon(Icons.send, size: 18),
+          label: const Text('Send Data'),
+        );
+
+        if (!isTight) {
+          return Container(
+            color: const Color(0xFF0f172a),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            child: Row(
+              children: [
+                title,
+                const SizedBox(width: 20),
+                welcome,
+                const Spacer(),
+                date,
+                const SizedBox(width: 20),
+                sendBtn,
+              ],
             ),
+          );
+        }
+
+        // tight width -> stack into 2 rows (no overflow)
+        return Container(
+          color: const Color(0xFF0f172a),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: title)),
+                  const SizedBox(width: 12),
+                  welcome,
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(child: date),
+                  sendBtn,
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 20),
-          const Text(
-            'Welcome admin',
-            style: TextStyle(color: Colors.white70),
-          ),
-          const Spacer(),
-          Text(
-            DateFormat('EEEE, MMM d, yyyy').format(_now),
-            style: const TextStyle(color: Colors.white60),
-          ),
-          const SizedBox(width: 20),
-          ElevatedButton.icon(
-            onPressed: isTodaySubmitted ? null : _confirmSendData,
-            icon: const Icon(Icons.send, size: 18),
-            label: const Text('Send Data'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  /// =====================
-  /// SUMMARY CARDS
-  /// =====================
-  Widget _buildSummaryCards() {
+  // =====================
+  // SUMMARY CARDS (Responsive)
+  // =====================
+
+  Widget _buildSummaryCardsResponsive() {
+    const minWidth = 900.0;
+
     return Container(
       color: const Color(0xFF111827),
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: _summaryCard(
-              'Today\'s Sales',
-              todaysSales,
-              Colors.green,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final isWide = c.maxWidth >= minWidth;
+
+          final cardsRow = Row(
+            children: [
+              Expanded(child: _summaryCard('Today\'s Sales', todaysSales, Colors.green)),
+              const SizedBox(width: 12),
+              Expanded(child: _summaryCard('Today\'s Expense', todaysExpense, Colors.red)),
+              const SizedBox(width: 12),
+              Expanded(child: _summaryCard('Today\'s Delivery', todaysDelivery, Colors.orange)),
+            ],
+          );
+
+          if (isWide) return cardsRow;
+
+          return Scrollbar(
+            controller: _summaryHScroll,
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: _summaryHScroll,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(width: minWidth, child: cardsRow),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _summaryCard(
-              'Today\'s Expense',
-              todaysExpense,
-              Colors.red,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _summaryCard(
-              'Today\'s Delivery',
-              todaysDelivery,
-              Colors.orange,
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  /// =====================
-  /// MAIN BODY
-  /// =====================
-  Widget _buildMainBody() {
+  // =====================
+  // MAIN BODY (Responsive)
+  // =====================
+
+  Widget _buildMainBodyResponsive() {
+    const minBodyWidth = 1280.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= minBodyWidth;
+
+        if (isWide) return _buildMainBodyRow();
+
+        return Scrollbar(
+          controller: _mainHScroll,
+          thumbVisibility: true,
+          child: SingleChildScrollView(
+            controller: _mainHScroll,
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: minBodyWidth,
+              child: _buildMainBodyRow(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMainBodyRow() {
     return Row(
       children: [
-        /// LEFT: ENTRY TABS
+        // LEFT: ENTRY TABS
         Expanded(
           flex: 3,
           child: Column(
@@ -433,23 +448,18 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                     SaleTab(
                       onSaleRecorded: (total) {
                         _addSale(total);
-                        _markDraft('Sale'); // Optional: mark draft on submit too
+                        _markDraft('Sale');
                       },
                       onDraftMarked: () => _markDraft('Sale'),
                     ),
-
                     DeliveryTab(
                       onSubmitted: () => _markDraft('Del'),
                       onDeliveryRecorded: (amount) {
                         setState(() => todaysDelivery = amount);
                       },
                     ),
-                    ExpenseTab(
-                      onSubmitted: () => _markDraft('Exp'),
-                    ),
-                    SettlementTab(
-                      onSubmitted: () => _markDraft('Set'),
-                    ),
+                    ExpenseTab(onSubmitted: () => _markDraft('Exp')),
+                    SettlementTab(onSubmitted: () => _markDraft('Set')),
                     const ExternalPaymentsTab(),
                   ],
                 ),
@@ -460,7 +470,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
         const SizedBox(width: 16),
 
-        /// MIDDLE: WEEKLY SUMMARY
+        // MIDDLE: WEEKLY SUMMARY
         Expanded(
           flex: 1,
           child: WeeklySummaryPerfect(weeklyStatus: weeklyStatus),
@@ -468,8 +478,8 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
         const SizedBox(width: 16),
 
-        /// RIGHT: TANK LEVELS
-        Expanded(
+        // RIGHT: TANK LEVELS
+        const Expanded(
           flex: 2,
           child: TankLevelsPerfect(),
         ),
@@ -477,9 +487,10 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
-  /// =====================
-  /// SUMMARY CARD
-  /// =====================
+  // =====================
+  // SUMMARY CARD
+  // =====================
+
   Widget _summaryCard(String title, double value, Color color) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -492,29 +503,18 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           Text(title, style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 6),
           Text(
-            '₦${value.toStringAsFixed(0)}',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
+            '₦${_money(value)}', // ✅ comma formatted
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
           ),
         ],
       ),
     );
   }
 
-  /// =====================
-  /// SIDEBAR ICON
-  /// =====================
   Widget _sideIcon(IconData icon, [bool active = false]) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Icon(
-        icon,
-        size: 28,
-        color: active ? Colors.green : Colors.grey,
-      ),
+      child: Icon(icon, size: 28, color: active ? Colors.green : Colors.grey),
     );
   }
 }
