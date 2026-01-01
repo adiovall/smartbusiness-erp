@@ -18,6 +18,13 @@ class DeliveryService {
     required this.deliveryRepo,
   });
 
+  /// ✅ MUST: load persisted history for tracking
+  Future<void> loadFromDb() async {
+    _deliveries
+      ..clear()
+      ..addAll(await deliveryRepo.fetchAll());
+  }
+
   Future<DeliveryRecord> recordDelivery({
     required String supplier,
     required String fuelType,
@@ -26,12 +33,8 @@ class DeliveryService {
     required double amountPaid,
     required String source,
   }) async {
-    if (liters <= 0) {
-      throw Exception('Delivered liters must be greater than zero');
-    }
-    if (totalCost < 0 || amountPaid < 0) {
-      throw Exception('Amounts cannot be negative');
-    }
+    if (liters <= 0) throw Exception('Delivered liters must be greater than zero');
+    if (totalCost < 0 || amountPaid < 0) throw Exception('Amounts cannot be negative');
 
     // 1️⃣ APPLY EXISTING CREDIT FIRST
     final double creditAvailable = totalCreditForSupplier(supplier);
@@ -39,10 +42,11 @@ class DeliveryService {
     double adjustedCost = totalCost;
 
     if (creditAvailable > 0) {
-      final usedCredit =
-          creditAvailable >= totalCost ? totalCost : creditAvailable;
+      final usedCredit = creditAvailable >= totalCost ? totalCost : creditAvailable;
       adjustedCost -= usedCredit;
-      _consumeCredit(supplier, usedCredit);
+
+      // ✅ persist credit reduction to DB
+      await _consumeCreditPersisted(supplier, usedCredit);
     }
 
     // 2️⃣ Final difference after credit
@@ -57,8 +61,8 @@ class DeliveryService {
       credit = diff;
     }
 
-    // 3️⃣ Increase tank
-    tankService.addFuel(fuelType, liters);
+    // 3️⃣ Increase tank (await if async)
+    await tankService.addFuel(fuelType, liters);
 
     // 4️⃣ Create record
     final delivery = DeliveryRecord(
@@ -79,7 +83,7 @@ class DeliveryService {
 
     // 5️⃣ Create debt ONLY
     if (debt > 0) {
-      debtService.createDebt(
+      await debtService.createDebt(
         supplier: supplier,
         fuelType: fuelType,
         amount: debt,
@@ -96,8 +100,8 @@ class DeliveryService {
         .fold(0.0, (sum, d) => sum + d.credit);
   }
 
-  /// CONSUME CREDIT (FIFO)
-  void _consumeCredit(String supplier, double amount) {
+  /// ✅ CONSUME CREDIT (FIFO) + persist updates
+  Future<void> _consumeCreditPersisted(String supplier, double amount) async {
     double remaining = amount;
 
     for (final d in _deliveries) {
@@ -107,6 +111,8 @@ class DeliveryService {
       d.credit -= used;
       remaining -= used;
 
+      await deliveryRepo.update(d); // ✅ save new credit value
+
       if (remaining <= 0) break;
     }
   }
@@ -115,6 +121,12 @@ class DeliveryService {
       _deliveries.where((d) => _isToday(d.date)).toList();
 
   List<DeliveryRecord> get allDeliveries => List.unmodifiable(_deliveries);
+
+  double get todayTotalCost =>
+      todayDeliveries.fold(0.0, (sum, d) => sum + d.totalCost);
+
+  double get todayTotalLiters =>
+      todayDeliveries.fold(0.0, (sum, d) => sum + d.liters);
 
   bool _isToday(DateTime d) {
     final now = DateTime.now();

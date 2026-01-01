@@ -60,12 +60,11 @@ class Services {
   static Future<void> init() async {
     await tank.loadFromDb();
     await debt.loadFromDb();
+    await delivery.loadFromDb(); // ✅ ADD THIS (so tracking/history works after restart)
     await expense.loadFromDb();
 
     final today = DateTime.now();
-    final weekStart =
-        today.subtract(Duration(days: today.weekday - 1));
-
+    final weekStart = today.subtract(Duration(days: today.weekday - 1));
     await dayEntry.loadWeek(weekStart);
-  }
+  }                                
 }
