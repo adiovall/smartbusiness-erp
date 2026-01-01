@@ -6,23 +6,31 @@ import 'delivery_service.dart';
 import 'debt_service.dart';
 import 'settlement_service.dart';
 import 'expense_service.dart';
+import 'day_entry_service.dart';
 
 import '../../features/fuel/repositories/delivery_repo.dart';
 import '../../features/fuel/repositories/debt_repo.dart';
 import '../../features/fuel/repositories/sale_repo.dart';
 import '../../features/fuel/repositories/tank_repo.dart';
 import '../../features/fuel/repositories/expense_repo.dart';
-
+import '../../features/fuel/repositories/day_entry_repo.dart';
 
 class Services {
   Services._();
 
-  static final deliveryRepo = DeliveryRepo();
-  static final debtRepo = DebtRepo();
-  static final saleRepo = SaleRepo();
+  // =====================
+  // REPOSITORIES
+  // =====================
   static final tankRepo = TankRepo();
+  static final debtRepo = DebtRepo();
+  static final deliveryRepo = DeliveryRepo();
+  static final saleRepo = SaleRepo();
   static final expenseRepo = ExpenseRepo();
+  static final dayEntryRepo = DayEntryRepo();
 
+  // =====================
+  // SERVICES
+  // =====================
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
 
@@ -37,17 +45,27 @@ class Services {
     saleRepo: saleRepo,
   );
 
+  static final expense = ExpenseService(expenseRepo);
+
   static final settlement = SettlementService(
     debtService: debt,
     deliveryService: delivery,
   );
 
-  static final expense = ExpenseService(expenseRepo);
+  static final dayEntry = DayEntryService(dayEntryRepo);
 
-  /// 🔑 Call once on app start
+  // =====================
+  // INIT (APP START)
+  // =====================
   static Future<void> init() async {
     await tank.loadFromDb();
     await debt.loadFromDb();
-    await expense.loadFromDb(); // ✅ ADD THIS
+    await expense.loadFromDb();
+
+    final today = DateTime.now();
+    final weekStart =
+        today.subtract(Duration(days: today.weekday - 1));
+
+    await dayEntry.loadWeek(weekStart);
   }
 }

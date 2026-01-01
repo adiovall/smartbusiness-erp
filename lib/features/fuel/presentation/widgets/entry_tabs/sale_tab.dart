@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
+// lib/features/fuel/presentation/widgets/entry_tabs/sale_tab.dart
 
-/* ===================== COLORS ===================== */
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '/../core/services/service_registry.dart';
 
 const panelBg = Color(0xFF0f172a);
 const textPrimary = Color(0xFFE5E7EB);
@@ -9,21 +11,22 @@ const inputBorder = Color(0xFF334155);
 const panelBorder = Color(0xFF1f2937);
 
 class SaleTab extends StatefulWidget {
-  /// Called when FINAL SUBMIT is done (batch).
-  /// We'll pass totalSold (not cash/pos), so "Today's Sales" == sales value.
   final Function(double totalSold) onSaleRecorded;
+  final VoidCallback onDraftMarked;
 
-  const SaleTab({super.key, required this.onSaleRecorded});
+  const SaleTab({
+    super.key,
+    required this.onSaleRecorded,
+    required this.onDraftMarked,
+  });
 
   @override
   State<SaleTab> createState() => _SaleTabState();
 }
 
-/* ===================== MODEL ===================== */
-
 class PumpSale {
-  final int pumpNo; // 1..12
-  final String fuel; // Petrol (PMS) ...
+  final int pumpNo;
+  final String fuel;
   final double opening;
   final double closing;
   final double unitPrice;
@@ -36,7 +39,7 @@ class PumpSale {
     required this.unitPrice,
   });
 
-  double get liters => (closing - opening);
+  double get liters => (closing - opening).clamp(0, double.infinity);
   double get amount => liters * unitPrice;
 }
 
@@ -47,62 +50,61 @@ class _SaleTabState extends State<SaleTab> {
   String pump = 'Pump 1';
   String fuel = 'Petrol (PMS)';
 
-  // Input controllers (A)
   final oCtrl = TextEditingController();
   final cCtrl = TextEditingController();
   final priceCtrl = TextEditingController(text: '865');
-
-  // Payment controllers (B)
   final cashCtrl = TextEditingController();
   final posCtrl = TextEditingController();
+  final shortageCommentCtrl = TextEditingController();
 
-  // Recorded pumps list
   final List<PumpSale> recorded = [];
-
-  // Editing state (index into recorded)
   int? editingIndex;
 
-  // -------------------- computed --------------------
-
-  double get opening => double.tryParse(oCtrl.text) ?? 0;
-  double get closing => double.tryParse(cCtrl.text) ?? 0;
-  double get unitPrice => double.tryParse(priceCtrl.text) ?? 0;
-
-  double get liters => (closing - opening);
-  double get amountSold => liters * unitPrice;
-
-  double get totalSold =>
-      recorded.fold(0.0, (sum, p) => sum + p.amount);
-
-  double get received =>
-      (double.tryParse(cashCtrl.text) ?? 0) + (double.tryParse(posCtrl.text) ?? 0);
-
-  double get balance => received - totalSold;
-
-  bool get canRecord =>
-      liters > 0 && unitPrice > 0; // basic validation
-
-  bool get canSubmit =>
-      recorded.isNotEmpty && received >= totalSold && totalSold > 0;
-
-  // -------------------- helpers --------------------
-
   String _abbrFuel(String full) {
-    // Petrol (PMS) -> PMS
     final m = RegExp(r'\(([^)]+)\)').firstMatch(full);
     return m?.group(1) ?? full.split(' ').first;
   }
 
-  String _money(double v) => v.toStringAsFixed(0);
+  String _formatMoney(double v) {
+    final parts = v.toStringAsFixed(0).split('.');
+    final integer = parts[0].replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (match) => '${match[1]},');
+    return integer;
+  }
+
+  double _parseNumber(String text) => double.tryParse(text.replaceAll(',', '')) ?? 0;
+
+  double get opening => _parseNumber(oCtrl.text);
+  double get closing => _parseNumber(cCtrl.text);
+  double get unitPrice => _parseNumber(priceCtrl.text);
+  double get liters => (closing - opening);
+  double get amountSold => liters * unitPrice;
+
+  double get totalSold => recorded.fold(0.0, (sum, p) => sum + p.amount);
+  double get cash => _parseNumber(cashCtrl.text);
+  double get pos => _parseNumber(posCtrl.text);
+  double get moneyAtHand => cash + pos;
+  double get balance => moneyAtHand - totalSold;
+
+  bool get canRecord => liters > 0 && unitPrice > 0 && liters <= _availableLiters();
+  bool get canSubmit => recorded.isNotEmpty;
+
+  double _availableLiters() {
+    final fuelCode = _abbrFuel(fuel);
+    final tank = Services.tank.getTank(fuelCode);
+    return tank?.currentLevel ?? 0.0;
+  }
 
   void _clearPumpInputs() {
     oCtrl.clear();
     cCtrl.clear();
-    // keep unit price (often constant), but you can clear if you want
     setState(() => editingIndex = null);
   }
 
   void _undoAll() {
+    for (final sale in recorded) {
+      final fuelCode = _abbrFuel(sale.fuel);
+      Services.tank.addFuel(fuelCode, sale.liters);
+    }
     recorded.clear();
     _clearPumpInputs();
     cashCtrl.clear();
@@ -110,11 +112,21 @@ class _SaleTabState extends State<SaleTab> {
     setState(() {});
   }
 
-  void _recordOrUpdatePump() {
-    if (!canRecord) return;
+  Future<void> _recordOrUpdatePump() async {
+    if (!canRecord) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Not enough fuel in tank (${_availableLiters().toStringAsFixed(1)}L available)'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final fuelCode = _abbrFuel(fuel);
+    await Services.tank.removeFuel(fuelCode, liters);
 
     final pumpNo = int.tryParse(pump.replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
-
     final sale = PumpSale(
       pumpNo: pumpNo,
       fuel: fuel,
@@ -125,20 +137,18 @@ class _SaleTabState extends State<SaleTab> {
 
     setState(() {
       if (editingIndex != null) {
-        recorded[editingIndex!] = sale; // ✅ A: edit updates totals immediately
+        recorded[editingIndex!] = sale;
         editingIndex = null;
       } else {
         recorded.add(sale);
+        widget.onDraftMarked();
       }
     });
 
     _clearPumpInputs();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(editingIndex == null ? 'Pump recorded' : 'Pump updated'),
-        backgroundColor: Colors.green,
-      ),
+      SnackBar(content: Text(editingIndex == null ? 'Pump recorded' : 'Pump updated'), backgroundColor: Colors.green),
     );
   }
 
@@ -154,107 +164,191 @@ class _SaleTabState extends State<SaleTab> {
     });
   }
 
-  void _deletePump(int index) {
+  Future<void> _deletePump(int index) async {
+    final p = recorded[index];
+    final fuelCode = _abbrFuel(p.fuel);
+    await Services.tank.addFuel(fuelCode, p.liters);
+
     setState(() {
       if (editingIndex == index) {
         editingIndex = null;
         _clearPumpInputs();
-      } else if (editingIndex != null && index < editingIndex!) {
-        // keep edit pointer accurate if deleting rows above it
-        editingIndex = editingIndex! - 1;
       }
       recorded.removeAt(index);
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Pump deleted – fuel returned to tank')),
+    );
   }
 
-  // -------------------- UI --------------------
+  Future<void> _submitWithBalanceCheck() async {
+    if (balance.abs() < 0.01) {
+      // Perfect tally
+      widget.onSaleRecorded(totalSold);
+      _undoAll();
+      return;
+    }
+
+    if (balance > 0) {
+      // Overpayment
+      final bool? createCredit = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: panelBg,
+          title: const Text('Overpayment Detected', style: TextStyle(color: Colors.blue)),
+          content: Text(
+            'Customer paid ₦${_formatMoney(balance)} more than sold.\n'
+            'Create credit note?',
+            style: const TextStyle(color: textSecondary),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No, Cancel Submit')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Yes, Submit with Credit'),
+            ),
+          ],
+        ),
+      );
+
+      if (createCredit != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Submit cancelled due to overpayment'), backgroundColor: Colors.orange),
+        );
+        return;
+      }
+
+      // TODO: Create credit note in debt/credit system when ready
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Overpayment ₦${_formatMoney(balance)} recorded as credit'), backgroundColor: Colors.blue),
+      );
+    } else {
+      // Shortage
+      final shortage = -balance;
+      final bool? recordShortage = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: panelBg,
+          title: const Text('Sales Shortage Detected', style: TextStyle(color: Colors.orange)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Shortage: ₦${_formatMoney(shortage)}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: shortageCommentCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Comment (required)',
+                  border: OutlineInputBorder(),
+                  hintText: 'Why was money short?',
+                ),
+                maxLines: 3,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel Submit')),
+            ElevatedButton(
+              onPressed: shortageCommentCtrl.text.trim().isEmpty ? null : () => Navigator.pop(context, true),
+              child: const Text('Submit & Record Shortage'),
+            ),
+          ],
+        ),
+      );
+
+      if (recordShortage != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Submit cancelled'), backgroundColor: Colors.orange),
+        );
+        return;
+      }
+
+      await Services.expense.createExpense(
+        amount: shortage,
+        category: 'Sales Shortage',
+        comment: shortageCommentCtrl.text.trim(),
+        isLocked: true,
+        source: 'Sales',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Shortage ₦${_formatMoney(shortage)} recorded'), backgroundColor: Colors.orange),
+      );
+    }
+
+    widget.onSaleRecorded(totalSold);
+    _undoAll();
+    shortageCommentCtrl.clear();
+  }
 
   InputDecoration _input(String label, {String? suffix}) {
     return InputDecoration(
       labelText: label,
       suffixText: suffix,
       labelStyle: const TextStyle(color: textSecondary),
-      suffixStyle: const TextStyle(color: textSecondary),
       filled: true,
       fillColor: Colors.white.withOpacity(0.04),
       isDense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      enabledBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: inputBorder),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.green),
-        borderRadius: BorderRadius.circular(8),
-      ),
+      enabledBorder: OutlineInputBorder(borderSide: const BorderSide(color: inputBorder), borderRadius: BorderRadius.circular(8)),
+      focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: Colors.green), borderRadius: BorderRadius.circular(8)),
     );
   }
 
-  Widget _field(String label, TextEditingController ctrl, {String? suffix}) {
-    return SizedBox(
-      height: 48,
-      child: TextField(
-        controller: ctrl,
-        keyboardType: TextInputType.number,
-        decoration: _input(label, suffix: suffix),
-        style: const TextStyle(color: textPrimary),
-        onChanged: (_) => setState(() {}),
-      ),
+  Widget _numberField(String label, TextEditingController ctrl, {String? suffix}) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: _input(label, suffix: suffix),
+      style: const TextStyle(color: textPrimary),
+      onChanged: (_) => setState(() {}),
     );
   }
 
-  Widget _dropdown(String label, String v, List<String> items, Function(String?) f) {
-    return SizedBox(
-      height: 48,
-      child: DropdownButtonFormField<String>(
-        value: v,
-        isDense: true,
-        isExpanded: true,
-        dropdownColor: panelBg,
-        decoration: _input(label),
-        items: items
-            .map(
-              (e) => DropdownMenuItem(
-                value: e,
-                child: Text(
-                  e,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: textPrimary),
-                ),
-              ),
-            )
-            .toList(),
-        onChanged: f,
-      ),
-    );
-  }
-
-  Widget _readonlyBox(String label, String value, Color color) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: inputBorder),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _readonlyField({
+  required String label,
+  required String value,
+  Color valueColor = textPrimary,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Flexible(
+          Text(label, style: const TextStyle(color: textSecondary)),
+          const SizedBox(height: 6),
+          Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: inputBorder),
+            ),
+            alignment: Alignment.centerRight,
             child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: textSecondary, fontSize: 13),
+              value,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: valueColor,
+              ),
             ),
           ),
-          const SizedBox(width: 10),
-          Text(
-            '₦$value',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
-          ),
         ],
-      ),
+      );
+    }
+
+
+  Widget _dropdown(String label, String v, List<String> items, Function(String?) f) {
+    return DropdownButtonFormField<String>(
+      value: v,
+      isDense: true,
+      isExpanded: true,
+      dropdownColor: panelBg,
+      decoration: _input(label),
+      items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+      onChanged: f,
     );
   }
 
@@ -264,7 +358,6 @@ class _SaleTabState extends State<SaleTab> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: const Color.fromARGB(255, 117, 157, 244).withOpacity(0.4),
-        // color: Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: inputBorder),
       ),
@@ -275,7 +368,7 @@ class _SaleTabState extends State<SaleTab> {
           Expanded(child: Text('Liters', style: h)),
           Expanded(child: Text('Unit', style: h)),
           Expanded(child: Text('Amount', style: h)),
-          const SizedBox(width: 70), // actions
+          const SizedBox(width: 80), // Extra space for buttons
         ],
       ),
     );
@@ -294,28 +387,13 @@ class _SaleTabState extends State<SaleTab> {
       ),
       child: Row(
         children: [
+          SizedBox(width: 48, child: Text('P${p.pumpNo}', style: const TextStyle(color: textPrimary, fontSize: 12))),
+          SizedBox(width: 52, child: Text(fuelShort, style: const TextStyle(color: textPrimary, fontSize: 12, fontWeight: FontWeight.w600))),
+          Expanded(child: Text(p.liters.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 12))),
+          Expanded(child: Text(p.unitPrice.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 12))),
+          Expanded(child: Text('₦${_formatMoney(p.amount)}', style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w700))),
           SizedBox(
-            width: 48,
-            child: Text('P${p.pumpNo}', style: const TextStyle(color: textPrimary, fontSize: 12)),
-          ),
-          SizedBox(
-            width: 52,
-            child: Text(fuelShort, style: const TextStyle(color: textPrimary, fontSize: 12, fontWeight: FontWeight.w600)),
-          ),
-          Expanded(
-            child: Text(p.liters.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 12)),
-          ),
-          Expanded(
-            child: Text(p.unitPrice.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 12)),
-          ),
-          Expanded(
-            child: Text(
-              p.amount.toStringAsFixed(0),
-              style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w700),
-            ),
-          ),
-          SizedBox(
-            width: 70,
+            width: 80,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
@@ -327,7 +405,6 @@ class _SaleTabState extends State<SaleTab> {
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 ),
-                const SizedBox(width: 10),
                 IconButton(
                   tooltip: 'Delete',
                   onPressed: () => _deletePump(index),
@@ -346,108 +423,70 @@ class _SaleTabState extends State<SaleTab> {
 
   @override
   Widget build(BuildContext context) {
-    final amountColor = canRecord ? Colors.green : Colors.orange;
+    final amountColor = canRecord ? Colors.green : Colors.red;
 
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          /* ===================== COLUMN A: INPUT + RECORDS ===================== */
+          // LEFT: RECORD PUMPS
           Expanded(
             flex: 3,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Record Pumps',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary),
-                ),
+                const Text('Record Pumps', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary)),
                 const SizedBox(height: 12),
-
-                // Row 1: Pump + Fuel
-                Row(
-                  children: [
-                    Expanded(child: _dropdown('Pump No', pump, pumps, (v) => setState(() => pump = v!))),
-                    const SizedBox(width: 10),
-                    Expanded(child: _dropdown('Fuel Type', fuel, fuels, (v) => setState(() => fuel = v!))),
-                  ],
-                ),
+                Row(children: [
+                  Expanded(child: _dropdown('Pump No', pump, pumps, (v) => setState(() => pump = v!))),
+                  const SizedBox(width: 10),
+                  Expanded(child: _dropdown('Fuel Type', fuel, fuels, (v) => setState(() => fuel = v!))),
+                ]),
                 const SizedBox(height: 10),
-
-                // Row 2: Opening + Closing
-                Row(
-                  children: [
-                    Expanded(child: _field('Opening', oCtrl)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _field('Closing', cCtrl)),
-                  ],
-                ),
+                Row(children: [
+                  Expanded(child: _numberField('Opening', oCtrl)),
+                  const SizedBox(width: 10),
+                  Expanded(child: _numberField('Closing', cCtrl)),
+                ]),
                 const SizedBox(height: 10),
-
-                // Row 3: Unit + Amount Sold
-                Row(
-                  children: [
-                    Expanded(child: _field('Unit Price', priceCtrl, suffix: '₦')),
-                    const SizedBox(width: 10),
-                    Expanded(child: _readonlyBox('Amount Sold', _money(amountSold), amountColor)),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-
-                // Row 4: Record + Pump count
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: canRecord ? _recordOrUpdatePump : null,
-                          icon: Icon(editingIndex == null ? Icons.playlist_add : Icons.update),
-                          label: Text(editingIndex == null ? 'Record Pump' : 'Update Pump'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            disabledBackgroundColor: Colors.green.withOpacity(0.35),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
+                Row(children: [
+                  Expanded(child: _numberField('Unit Price', priceCtrl, suffix: '₦')),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
                       height: 48,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.06),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: inputBorder),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'Total Pumps: ${recorded.length}',
-                          style: const TextStyle(color: textSecondary, fontWeight: FontWeight.w600),
-                        ),
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), borderRadius: BorderRadius.circular(8), border: Border.all(color: inputBorder)),
+                      alignment: Alignment.centerRight,
+                      child: Text('₦${_formatMoney(amountSold)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: amountColor)),
                     ),
-                  ],
-                ),
-
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: canRecord ? _recordOrUpdatePump : null,
+                      icon: Icon(editingIndex == null ? Icons.playlist_add : Icons.update),
+                      label: Text(editingIndex == null ? 'Record Pump' : 'Update Pump'),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: inputBorder)),
+                    child: Center(child: Text('Total Pumps: ${recorded.length}', style: const TextStyle(color: textSecondary, fontWeight: FontWeight.w600))),
+                  ),
+                ]),
                 const SizedBox(height: 16),
-
-                // Row 5: Recorded pumps board
                 _tableHeader(),
                 const SizedBox(height: 10),
-
                 Expanded(
                   child: recorded.isEmpty
-                      ? Center(
-                          child: Text(
-                            'No pumps recorded yet.',
-                            style: TextStyle(color: textSecondary),
-                          ),
-                        )
+                      ? const Center(child: Text('No pumps recorded yet.', style: TextStyle(color: textSecondary)))
                       : ListView.separated(
                           itemCount: recorded.length,
                           separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -460,106 +499,70 @@ class _SaleTabState extends State<SaleTab> {
 
           const SizedBox(width: 22),
 
-          /* ===================== COLUMN B: SUMMARY + PAYMENT + SUBMIT ===================== */
+          // RIGHT: ACCOUNTS
           Expanded(
             flex: 2,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Payment',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary),
-                ),
-                const SizedBox(height: 12),
+                const Text('Accounts', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary)),
+                const SizedBox(height: 16),
 
-                // Total Sold big box
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: inputBorder),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Total Amount Sold', style: TextStyle(color: textSecondary)),
-                      Text(
-                        '₦${_money(totalSold)}',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
-                      ),
-                    ],
-                  ),
+                _readonlyField(
+                  label: 'Total Amount Sold',
+                  value: '₦${_formatMoney(totalSold)}',
+                  valueColor: Colors.green,
                 ),
 
-                const SizedBox(height: 12),
 
-                _field('Cash', cashCtrl, suffix: '₦'),
+                const SizedBox(height: 20),
+                const Text('Payment', style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w500)),
+
+                const SizedBox(height: 12),
+                _numberField('Cash', cashCtrl, suffix: '₦'),
                 const SizedBox(height: 10),
-                _field('POS', posCtrl, suffix: '₦'),
+                _numberField('POS', posCtrl, suffix: '₦'),
 
-                const SizedBox(height: 12),
-
-                _readonlyBox(
-                  'Balance',
-                  _money(balance),
-                  balance >= 0 ? Colors.green : Colors.red,
+                const SizedBox(height: 20),
+                _readonlyField(
+                  label: 'Money at Hand',
+                  value: '₦${_formatMoney(moneyAtHand)}',
+                  valueColor: Colors.cyan,
                 ),
+
+                const SizedBox(height: 10),
+                Text('Balance: ₦${_formatMoney(balance)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: balance >= 0 ? Colors.green : Colors.red)),
 
                 const Spacer(),
 
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _undoAll,
-                        icon: const Icon(Icons.undo),
-                        label: const Text('Undo All'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: textSecondary,
-                          side: const BorderSide(color: inputBorder),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                      ),
+                Row(children: [
+                  Expanded(child: OutlinedButton.icon(onPressed: _undoAll, icon: const Icon(Icons.undo), label: const Text('Undo All'))),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: canSubmit ? _submitWithBalanceCheck : null,
+                      icon: const Icon(Icons.send),
+                      label: const Text('Submit'),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 35,
-                        child: ElevatedButton.icon(
-                          onPressed: canSubmit
-                              ? () {
-                                  // FINAL SUBMIT (batch)
-                                  widget.onSaleRecorded(totalSold);
-
-                                  _undoAll();
-
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Batch sale submitted'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
-                              : null,
-                          icon: const Icon(Icons.check_circle),
-                          label: const Text('Submit'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            disabledBackgroundColor: Colors.green.withOpacity(0.35),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ]),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    oCtrl.dispose();
+    cCtrl.dispose();
+    priceCtrl.dispose();
+    cashCtrl.dispose();
+    posCtrl.dispose();
+    shortageCommentCtrl.dispose();
+    super.dispose();
   }
 }

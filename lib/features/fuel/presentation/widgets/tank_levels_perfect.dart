@@ -2,52 +2,121 @@
 
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/tank_state.dart';
 
 /* ===================== COLORS ===================== */
-
 const panelBg = Color(0xFF0f172a);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
 
 /* ===================== WIDGET ===================== */
+class TankLevelsPerfect extends StatefulWidget {
+  const TankLevelsPerfect({super.key});
 
-class TankLevelsPerfect extends StatelessWidget {
-  final List<TankState> tanks;
+  @override
+  State<TankLevelsPerfect> createState() => _TankLevelsPerfectState();
+}
 
-  const TankLevelsPerfect({
-    super.key,
-    required this.tanks,
+class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
+  late TankState selectedTank;
+  final TextEditingController capacityController = TextEditingController();
+  final TextEditingController levelController = TextEditingController();
+
+  @override
+void initState() {
+  super.initState();
+  final tanks = Services.tank.allTanks;
+  selectedTank = tanks.isNotEmpty ? tanks.first : TankState(fuelType: 'PMS', capacity: 33000, currentLevel: 0);
+  _updateControllers();
+
+  // Listen for any tank changes (e.g., from delivery/sales)
+  Services.tank.addListener(_onTankDataChanged);
+}
+
+  @override
+  void dispose() {
+    Services.tank.removeListener(_onTankDataChanged);
+    capacityController.dispose();
+    levelController.dispose();
+    super.dispose();
+  }
+
+  void _onTankDataChanged() {
+    setState(() {
+      final tanks = Services.tank.allTanks;
+      // Re-select current tank or fallback
+      selectedTank = tanks.firstWhere(
+        (t) => t.fuelType == selectedTank.fuelType,
+        orElse: () => tanks.first,
+      );
+      _updateControllers();
+    });
+  }
+
+  void _updateControllers() {
+    capacityController.text = selectedTank.capacity.toStringAsFixed(0);
+    levelController.text = selectedTank.currentLevel.toStringAsFixed(0);
+  }
+
+  void _onTankChanged(TankState? newTank) {
+    if (newTank != null) {
+      setState(() {
+        selectedTank = newTank;
+        _updateControllers();
+      });
+    }
+  }
+
+  // Inside _TankLevelsPerfectState class
+
+void _saveChanges() async {
+  final newCapacity = double.tryParse(capacityController.text) ?? selectedTank.capacity;
+  final newLevel = double.tryParse(levelController.text) ?? selectedTank.currentLevel;
+
+  if (newLevel > newCapacity) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Current level cannot exceed capacity')),
+    );
+    return;
+  }
+
+  // Create updated tank instance
+  final updatedTank = TankState(
+    fuelType: selectedTank.fuelType,
+    capacity: newCapacity,
+    currentLevel: newLevel,
+  );
+
+  // Update via service → triggers notifyListeners()
+  await Services.tank.updateTank(updatedTank);
+
+  // Update local selected reference
+  setState(() {
+    selectedTank = updatedTank;
   });
 
-  /* ===================== HELPERS ===================== */
-
-  double _percent(TankState t) =>
-      t.capacity <= 0 ? 0 : (t.currentLevel / t.capacity * 100).clamp(0, 100);
-
-  Color _levelColor(double v) =>
-      v > 50 ? Colors.green : v > 20 ? Colors.orange : Colors.red;
-
-  String _meterStatus(double percent) {
-    if (percent < 20) return 'CRITICAL';
-    if (percent < 50) return 'LOW';
-    return 'IN STOCK';
-  }
-
-  Color _meterStatusColor(double percent) {
-    if (percent < 20) return Colors.red;
-    if (percent < 50) return Colors.orange;
-    return Colors.green;
-  }
-
-  /* ===================== BUILD ===================== */
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('${updatedTank.fuelType} tank updated successfully')),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
+    final tanks = Services.tank.allTanks;
+
     if (tanks.isEmpty) {
       return _emptyState();
     }
+
+    // Ensure selectedTank is always valid
+    if (!tanks.contains(selectedTank)) {
+      selectedTank = tanks.first;
+      _updateControllers();
+    }
+
+    final percent = selectedTank.percentage;
 
     return Container(
       decoration: BoxDecoration(
@@ -67,11 +136,75 @@ class TankLevelsPerfect extends StatelessWidget {
               color: textPrimary,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+
+          /* ===== TANK SETTINGS HEADER (RESTORED!) ===== */
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<TankState>(
+                  value: selectedTank,
+                  decoration: const InputDecoration(
+                    labelText: 'Fuel',
+                    labelStyle: TextStyle(color: textSecondary, fontSize: 12),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  dropdownColor: const Color(0xFF1e293b),
+                  style: const TextStyle(color: textPrimary),
+                  items: tanks.map((tank) {
+                    return DropdownMenuItem(
+                      value: tank,
+                      child: Text(tank.fuelType),
+                    );
+                  }).toList(),
+                  onChanged: _onTankChanged,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: capacityController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Capacity (L)',
+                    labelStyle: TextStyle(color: textSecondary, fontSize: 12),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  style: const TextStyle(color: textPrimary),
+                  onSubmitted: (_) => _saveChanges(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: levelController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Level (L)',
+                    labelStyle: TextStyle(color: textSecondary, fontSize: 12),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  style: const TextStyle(color: textPrimary),
+                  onSubmitted: (_) => _saveChanges(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.save, color: Colors.green),
+                tooltip: 'Save Changes',
+                onPressed: _saveChanges,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
 
           /* ===== LINEAR GAUGES ===== */
           ...tanks.map((t) {
-            final percent = _percent(t);
+            final p = t.percentage;
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
@@ -80,31 +213,24 @@ class TankLevelsPerfect extends StatelessWidget {
                     width: 60,
                     child: Text(
                       t.fuelType,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: textSecondary,
-                      ),
+                      style: const TextStyle(fontSize: 11, color: textSecondary),
                     ),
                   ),
                   Expanded(
                     child: LinearProgressIndicator(
-                      value: percent / 100,
+                      value: p / 100,
                       minHeight: 16,
-                      backgroundColor:
-                          Colors.white.withOpacity(0.06),
-                      color: _levelColor(percent),
+                      backgroundColor: Colors.white.withOpacity(0.06),
+                      color: _levelColor(p),
                     ),
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
                     width: 40,
                     child: Text(
-                      '${percent.toInt()}%',
+                      '${p.toInt()}%',
                       textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: textSecondary,
-                      ),
+                      style: const TextStyle(fontSize: 11, color: textSecondary),
                     ),
                   ),
                 ],
@@ -114,33 +240,26 @@ class TankLevelsPerfect extends StatelessWidget {
 
           const SizedBox(height: 28),
 
-          /* ===== NEEDLE GAUGE (FIRST TANK) ===== */
-          _needleGauge(tanks.first),
+          /* ===== NEEDLE GAUGE (SELECTED TANK) ===== */
+          _needleGauge(selectedTank),
         ],
       ),
     );
   }
 
-  /* ===================== NEEDLE ===================== */
-
+  /* ===================== NEEDLE GAUGE ===================== */
   Widget _needleGauge(TankState t) {
-    final percent = _percent(t);
+    final percent = t.percentage;
     final color = _levelColor(percent);
-    final isLow = percent < 20;
 
     return Center(
       child: Column(
         children: [
           Text(
             t.fuelType,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: textPrimary,
-            ),
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textPrimary),
           ),
           const SizedBox(height: 6),
-
           TweenAnimationBuilder<double>(
             tween: Tween(begin: 0, end: percent),
             duration: const Duration(milliseconds: 1000),
@@ -152,48 +271,27 @@ class TankLevelsPerfect extends StatelessWidget {
                     width: 200,
                     height: 110,
                     child: CustomPaint(
-                      painter: _NeedleGaugePainter(
-                        percent: value,
-                        color: color,
-                      ),
+                      painter: _NeedleGaugePainter(percent: value, color: color),
                     ),
                   ),
-
-                  if (isLow)
-                    const Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.red,
-                      size: 26,
-                    ),
-
                   Positioned(
                     bottom: 6,
                     child: Text(
                       '${value.toInt()}%',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
                     ),
                   ),
                 ],
               );
             },
           ),
-
           const SizedBox(height: 8),
-
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
                 '${t.currentLevel.toStringAsFixed(0)} / ${t.capacity.toStringAsFixed(0)} L',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: textPrimary,
-                ),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: textPrimary),
               ),
               const SizedBox(width: 8),
               Text(
@@ -210,6 +308,23 @@ class TankLevelsPerfect extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /* ===================== HELPERS ===================== */
+  double _percent(TankState t) => t.percentage;
+
+  Color _levelColor(double v) => v > 50 ? Colors.green : v > 20 ? Colors.orange : Colors.red;
+
+  String _meterStatus(double percent) {
+    if (percent < 20) return 'CRITICAL';
+    if (percent < 50) return 'LOW';
+    return 'IN STOCK';
+  }
+
+  Color _meterStatusColor(double percent) {
+    if (percent < 20) return Colors.red;
+    if (percent < 50) return Colors.orange;
+    return Colors.green;
   }
 
   Widget _emptyState() {
@@ -231,15 +346,11 @@ class TankLevelsPerfect extends StatelessWidget {
 }
 
 /* ===================== NEEDLE PAINTER ===================== */
-
 class _NeedleGaugePainter extends CustomPainter {
   final double percent;
   final Color color;
 
-  _NeedleGaugePainter({
-    required this.percent,
-    required this.color,
-  });
+  _NeedleGaugePainter({required this.percent, required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -280,19 +391,14 @@ class _NeedleGaugePainter extends CustomPainter {
 
     canvas.drawLine(
       center,
-      Offset(
-        center.dx + needleLength * cos(angle),
-        center.dy + needleLength * sin(angle),
-      ),
-      Paint()
-        ..color = color
-        ..strokeWidth = 3,
+      Offset(center.dx + needleLength * cos(angle), center.dy + needleLength * sin(angle)),
+      Paint()..color = color..strokeWidth = 3,
     );
 
     canvas.drawCircle(center, 5, Paint()..color = color);
   }
 
   @override
-  bool shouldRepaint(covariant _NeedleGaugePainter oldDelegate) =>
-      oldDelegate.percent != percent;
+  bool shouldRepaint(covariant _NeedleGaugePainter oldDelegate) => oldDelegate.percent != percent;
 }
+

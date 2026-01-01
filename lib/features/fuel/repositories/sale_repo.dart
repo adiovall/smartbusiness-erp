@@ -5,49 +5,67 @@ import '../../../core/db/app_database.dart';
 import '../../../core/models/sale_record.dart';
 
 class SaleRepo {
-  Future<void> insert(SaleRecord s) async {
+  /// Insert or update a sale record
+  Future<void> insert(SaleRecord sale) async {
     final db = await AppDatabase.instance;
-    await db.insert('sales', s.toJson(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'sales',
+      sale.toJson(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
-  /// ✅ Better: true today filter
+  /// Fetch all sales for today only (most efficient & accurate)
   Future<List<SaleRecord>> fetchToday() async {
     final db = await AppDatabase.instance;
 
-    final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day).toIso8601String();
-    final end =
-        DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+    final todayStr = DateTime.now().toIso8601String().substring(0, 10); // yyyy-MM-dd
 
     final rows = await db.query(
       'sales',
-      where: 'date BETWEEN ? AND ?',
-      whereArgs: [start, end],
+      where: "substr(date, 1, 10) = ?", // Compare only date part
+      whereArgs: [todayStr],
       orderBy: 'date DESC',
     );
 
-    return rows.map((r) => SaleRecord(
-      id: r['id'] as String,
-      date: DateTime.parse(r['date'] as String),
-      pumpNo: r['pumpNo'] as String,
-      fuelType: r['fuelType'] as String,
-      liters: (r['liters'] as num).toDouble(),
-      unitPrice: (r['unitPrice'] as num).toDouble(),
-    )).toList();
+    return rows.map(SaleRecord.fromJson).toList();
   }
 
-  /// ✅ REQUIRED for Service loading
+  /// Fetch all sales (for history/reporting)
   Future<List<SaleRecord>> fetchAll() async {
     final db = await AppDatabase.instance;
-    final rows = await db.query('sales', orderBy: 'date DESC');
-    return rows.map((r) => SaleRecord(
-      id: r['id'] as String,
-      date: DateTime.parse(r['date'] as String),
-      pumpNo: r['pumpNo'] as String,
-      fuelType: r['fuelType'] as String,
-      liters: (r['liters'] as num).toDouble(),
-      unitPrice: (r['unitPrice'] as num).toDouble(),
-    )).toList();
+
+    final rows = await db.query(
+      'sales',
+      orderBy: 'date DESC',
+    );
+
+    return rows.map(SaleRecord.fromJson).toList();
   }
+
+  /// Get total sales amount for today (used for main screen persistence)
+  Future<double> getTodayTotalAmount() async {
+    final sales = await fetchToday();
+    double total = 0.0;
+    for (final sale in sales) {
+      total += sale.totalAmount;
+    }
+    return total;
+  }
+
+  /// Delete a sale (useful for undo or correction)
+  Future<void> delete(String id) async {
+    final db = await AppDatabase.instance;
+    await db.delete(
+      'sales',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+  /// Optional: Clear all sales (for testing)
+  Future<void> clearAll() async {
+    final db = await AppDatabase.instance;
+    await db.delete('sales');
+  }
+
 }

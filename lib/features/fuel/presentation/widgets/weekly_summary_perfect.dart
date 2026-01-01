@@ -1,23 +1,35 @@
+// lib/features/fuel/presentation/widgets/weekly_summary_perfect.dart
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/models/day_entry.dart' as de;
 
+/* ===================== COLORS ===================== */
 const panelBg = Color(0xFF0f172a);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
 
 class WeeklySummaryPerfect extends StatelessWidget {
-  final Map<String, Map<String, bool>> weeklyStatus;
-  const WeeklySummaryPerfect({super.key, required this.weeklyStatus});
+  // Change from List<DayEntry> to your map structure
+  final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus;
+
+  const WeeklySummaryPerfect({
+    super.key,
+    required this.weeklyStatus,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
-    final start = today.subtract(Duration(days: today.weekday - 1));
-    final days = List.generate(
-      7,
-      (i) => DateFormat('EEE dd').format(start.add(Duration(days: i))),
-    );
+    // Sort days: Mon → Sun (assuming keys are like "Mon 15")
+    final sortedKeys = weeklyStatus.keys.toList()
+      ..sort((a, b) {
+        // Extract day name for sorting
+        final dayA = a.split(' ').first;
+        final dayB = b.split(' ').first;
+        const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        return order.indexOf(dayA).compareTo(order.indexOf(dayB));
+      });
 
     return Container(
       decoration: BoxDecoration(
@@ -38,49 +50,11 @@ class WeeklySummaryPerfect extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-
           Table(
-            columnWidths: const {
-              0: FixedColumnWidth(52),
-            },
+            columnWidths: const {0: FixedColumnWidth(54)},
             children: [
-              TableRow(
-                children: ['', 'Sales', 'Deli', 'Exp', 'St']
-                    .map(
-                      (h) => Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Text(
-                          h,
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: textPrimary,
-                          ),
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-              ...days.map(
-                (d) => TableRow(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Text(
-                        d,
-                        style: const TextStyle(
-                          fontSize: 9,
-                          color: textSecondary,
-                        ),
-                      ),
-                    ),
-                    _c(weeklyStatus[d]?['Sale'] ?? false),
-                    _c(weeklyStatus[d]?['Del'] ?? false),
-                    _c(weeklyStatus[d]?['Exp'] ?? false),
-                    _c(weeklyStatus[d]?['Set'] ?? false),
-                  ],
-                ),
-              ),
+              _headerRow(),
+              ...sortedKeys.map((key) => _dayRow(key, weeklyStatus[key]!)),
             ],
           ),
         ],
@@ -88,11 +62,64 @@ class WeeklySummaryPerfect extends StatelessWidget {
     );
   }
 
-  Widget _c(bool v) => Center(
-        child: Icon(
-          v ? Icons.check_circle : Icons.circle_outlined,
-          size: 12,
-          color: v ? Colors.green : const Color(0xFF475569),
+  TableRow _headerRow() {
+    return TableRow(
+      children: ['', 'Sales', 'Deli', 'Exp', 'St']
+          .map(
+            (h) => Padding(
+              padding: const EdgeInsets.all(4),
+              child: Text(
+                h,
+                style: const TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  color: textPrimary,
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  TableRow _dayRow(String dayLabel, Map<String, de.DayEntryStatus> statuses) {
+    return TableRow(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(4),
+          child: Text(
+            dayLabel,
+            style: const TextStyle(fontSize: 9, color: textSecondary),
+          ),
         ),
-      );
+        _cell(statuses['Sale'] ?? de.DayEntryStatus.none),
+        _cell(statuses['Del'] ?? de.DayEntryStatus.none),
+        _cell(statuses['Exp'] ?? de.DayEntryStatus.none),
+        _cell(statuses['Set'] ?? de.DayEntryStatus.none),
+      ],
+    );
+  }
+
+  Widget _cell(de.DayEntryStatus status) {
+    Color color;
+    IconData icon;
+
+    switch (status) {
+      case de.DayEntryStatus.submitted:
+        color = Colors.green;
+        icon = Icons.check_circle;
+        break;
+      case de.DayEntryStatus.draft:
+        color = Colors.amber;
+        icon = Icons.check_circle;
+        break;
+      default:
+        color = const Color(0xFF475569);
+        icon = Icons.circle_outlined;
+    }
+
+    return Center(
+      child: Icon(icon, size: 12, color: color),
+    );
+  }
 }

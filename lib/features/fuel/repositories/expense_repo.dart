@@ -48,4 +48,14 @@ class ExpenseRepo {
 
     return rows.map((e) => ExpenseRecord.fromJson(e)).toList();
   }
+
+  Future<void> delete(String id) async {
+      final db = await AppDatabase.instance;
+      await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
+    }
+
 }
+
+  
+
+  
