@@ -14,6 +14,7 @@ import '../../features/fuel/repositories/sale_repo.dart';
 import '../../features/fuel/repositories/tank_repo.dart';
 import '../../features/fuel/repositories/expense_repo.dart';
 import '../../features/fuel/repositories/day_entry_repo.dart';
+import '../../features/fuel/repositories/settlement_repo.dart';
 
 class Services {
   Services._();
@@ -27,6 +28,7 @@ class Services {
   static final saleRepo = SaleRepo();
   static final expenseRepo = ExpenseRepo();
   static final dayEntryRepo = DayEntryRepo();
+  static final settlementRepo = SettlementRepo();
 
   // =====================
   // SERVICES
@@ -50,6 +52,7 @@ class Services {
   static final settlement = SettlementService(
     debtService: debt,
     deliveryService: delivery,
+    settlementRepo: settlementRepo, // ✅ ADD THIS
   );
 
   static final dayEntry = DayEntryService(dayEntryRepo);
@@ -60,11 +63,11 @@ class Services {
   static Future<void> init() async {
     await tank.loadFromDb();
     await debt.loadFromDb();
-    await delivery.loadFromDb(); // ✅ ADD THIS (so tracking/history works after restart)
+    await delivery.loadFromDb(); // ✅ good
     await expense.loadFromDb();
 
     final today = DateTime.now();
     final weekStart = today.subtract(Duration(days: today.weekday - 1));
     await dayEntry.loadWeek(weekStart);
-  }                                
+  }
 }

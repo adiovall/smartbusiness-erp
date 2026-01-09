@@ -6,14 +6,10 @@ import '../../features/fuel/repositories/day_entry_repo.dart';
 class DayEntryService {
   final DayEntryRepo repo;
 
-  /// In-memory cache for fast UI updates
   final Map<String, DayEntry> _cache = {};
 
   DayEntryService(this.repo);
 
-  /* ===================== LOAD ===================== */
-
-  /// Get entry for a date or create a new one
   Future<DayEntry> getOrCreate(String date) async {
     if (_cache.containsKey(date)) return _cache[date]!;
 
@@ -24,15 +20,12 @@ class DayEntryService {
     return entry;
   }
 
-  /// Load a full week into cache (used by weekly summary)
   Future<void> loadWeek(DateTime weekStart) async {
     final entries = await repo.fetchWeek(weekStart);
     for (final e in entries) {
       _cache[e.date] = e;
     }
   }
-
-  /* ===================== DRAFT ===================== */
 
   /// Mark a section as draft (yellow)
   Future<void> markDraft(String date, String type) async {
@@ -56,11 +49,41 @@ class DayEntryService {
     await repo.upsert(entry);
   }
 
-  /* ===================== SUBMIT ===================== */
-
-  /// Submit day (green) with editable submission date
-  Future<void> submitDay({
+  /// ✅ NEW: submit only ONE section (e.g. Delivery only)
+  /// This solves your redline.
+  Future<void> submitSection({
     required String businessDate, // yyyy-MM-dd
+    required String section, // 'Sale'|'Del'|'Exp'|'Set'
+    required DateTime submittedAt,
+  }) async {
+    final entry = await getOrCreate(businessDate);
+
+    switch (section) {
+      case 'Sale':
+        entry.sale = _finalize(entry.sale);
+        break;
+      case 'Del':
+        entry.delivery = _finalize(entry.delivery);
+        break;
+      case 'Exp':
+        entry.expense = _finalize(entry.expense);
+        break;
+      case 'Set':
+        entry.settlement = _finalize(entry.settlement);
+        break;
+      default:
+        throw Exception('Unknown section: $section');
+    }
+
+    // you still want submittedAt saved whenever anything is submitted
+    entry.submittedAt = submittedAt;
+
+    await repo.upsert(entry);
+  }
+
+  /// Submit whole day (green) for all draft sections
+  Future<void> submitDay({
+    required String businessDate,
     required DateTime submittedAt,
   }) async {
     final entry = await getOrCreate(businessDate);
@@ -76,12 +99,8 @@ class DayEntryService {
   }
 
   DayEntryStatus _finalize(DayEntryStatus s) {
-    return s == DayEntryStatus.draft
-        ? DayEntryStatus.submitted
-        : s;
+    return s == DayEntryStatus.draft ? DayEntryStatus.submitted : s;
   }
-
-  /* ===================== READ ===================== */
 
   DayEntry? getFromCache(String date) => _cache[date];
 }

@@ -5,14 +5,21 @@ class DeliveryRecord {
   final DateTime date;
   final String supplier;
   final String fuelType;
+
   final double liters;
   final double totalCost;
   final double amountPaid;
+
+  final double salesPaid;
+  final double externalPaid;
+
   final String source;
 
-  /// 🔑 STORED STATE (NOT COMPUTED)
   double debt;
   double credit;
+
+  // ✅ lock flag (editable until submit)
+  final int isSubmitted; // 0 = draft, 1 = submitted
 
   DeliveryRecord({
     required this.id,
@@ -23,8 +30,11 @@ class DeliveryRecord {
     required this.totalCost,
     required this.amountPaid,
     required this.source,
+    this.salesPaid = 0.0,
+    this.externalPaid = 0.0,
     this.debt = 0.0,
     this.credit = 0.0,
+    this.isSubmitted = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -35,23 +45,29 @@ class DeliveryRecord {
         'liters': liters,
         'totalCost': totalCost,
         'amountPaid': amountPaid,
+        'salesPaid': salesPaid,
+        'externalPaid': externalPaid,
         'source': source,
         'debt': debt,
         'credit': credit,
+        'isSubmitted': isSubmitted,
       };
 
   factory DeliveryRecord.fromJson(Map<String, dynamic> json) {
     return DeliveryRecord(
-      id: json['id'],
-      date: DateTime.parse(json['date']),
-      supplier: json['supplier'],
-      fuelType: json['fuelType'],
+      id: json['id'] as String,
+      date: DateTime.parse(json['date'] as String),
+      supplier: (json['supplier'] as String),
+      fuelType: (json['fuelType'] as String),
       liters: (json['liters'] as num).toDouble(),
       totalCost: (json['totalCost'] as num).toDouble(),
       amountPaid: (json['amountPaid'] as num).toDouble(),
-      source: json['source'],
+      salesPaid: (json['salesPaid'] as num?)?.toDouble() ?? 0.0,
+      externalPaid: (json['externalPaid'] as num?)?.toDouble() ?? 0.0,
+      source: (json['source'] as String?) ?? '',
       debt: (json['debt'] as num?)?.toDouble() ?? 0.0,
       credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
+      isSubmitted: (json['isSubmitted'] as num?)?.toInt() ?? 0,
     );
   }
 }
