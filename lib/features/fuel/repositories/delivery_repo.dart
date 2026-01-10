@@ -1,12 +1,12 @@
 // lib/features/fuel/repositories/delivery_repo.dart
 
-import 'package:sqflite_common/sqlite_api.dart';
+import 'package:sqflite/sqflite.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/models/delivery_record.dart';
 
 class DeliveryRepo {
   Future<void> insert(DeliveryRecord d) async {
-    final Database db = await AppDatabase.instance;
+    final db = await AppDatabase.instance;
 
     await db.insert(
       'deliveries',
@@ -20,6 +20,7 @@ class DeliveryRepo {
         'amountPaid': d.amountPaid,
         'salesPaid': d.salesPaid,
         'externalPaid': d.externalPaid,
+        'creditUsed': d.creditUsed,
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
@@ -30,7 +31,7 @@ class DeliveryRepo {
   }
 
   Future<void> update(DeliveryRecord d) async {
-    final Database db = await AppDatabase.instance;
+    final db = await AppDatabase.instance;
 
     await db.update(
       'deliveries',
@@ -43,6 +44,7 @@ class DeliveryRepo {
         'amountPaid': d.amountPaid,
         'salesPaid': d.salesPaid,
         'externalPaid': d.externalPaid,
+        'creditUsed': d.creditUsed,
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
@@ -53,19 +55,14 @@ class DeliveryRepo {
     );
   }
 
-  Future<void> deleteById(String id) async {
-    final Database db = await AppDatabase.instance;
-    await db.delete('deliveries', where: 'id = ?', whereArgs: [id]);
-  }
-
   Future<List<DeliveryRecord>> fetchAll() async {
-    final Database db = await AppDatabase.instance;
+    final db = await AppDatabase.instance;
     final rows = await db.query('deliveries', orderBy: 'date DESC');
     return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
   }
 
   Future<List<DeliveryRecord>> fetchTodayDraft() async {
-    final Database db = await AppDatabase.instance;
+    final db = await AppDatabase.instance;
 
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day).toIso8601String();
@@ -82,7 +79,7 @@ class DeliveryRepo {
   }
 
   Future<List<DeliveryRecord>> fetchTodaySubmitted() async {
-    final Database db = await AppDatabase.instance;
+    final db = await AppDatabase.instance;
 
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day).toIso8601String();
@@ -98,24 +95,25 @@ class DeliveryRepo {
     return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
   }
 
-  // ✅ lock selected rows
+  Future<void> deleteById(String id) async {
+    final db = await AppDatabase.instance;
+    await db.delete('deliveries', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<void> markSubmittedByIds(List<String> ids) async {
     if (ids.isEmpty) return;
-
-    final Database db = await AppDatabase.instance;
+    final db = await AppDatabase.instance;
 
     final placeholders = List.filled(ids.length, '?').join(',');
-    await db.update(
-      'deliveries',
-      {'isSubmitted': 1},
-      where: 'id IN ($placeholders)',
-      whereArgs: ids,
+    await db.rawUpdate(
+      'UPDATE deliveries SET isSubmitted = 1 WHERE id IN ($placeholders)',
+      ids,
     );
   }
 
   /// ✅ Supplier memory from BOTH deliveries + settlements
   Future<List<String>> fetchAllSuppliersDistinct({int limit = 500}) async {
-    final Database db = await AppDatabase.instance;
+    final db = await AppDatabase.instance;
 
     final rows = await db.rawQuery(
       '''
@@ -133,3 +131,4 @@ class DeliveryRepo {
     return rows.map((r) => (r['supplier'] as String)).toList();
   }
 }
+

@@ -4,32 +4,20 @@ import '../models/settlement_record.dart';
 import 'debt_service.dart';
 import 'delivery_service.dart';
 import '../../features/fuel/repositories/settlement_repo.dart';
+import 'expense_service.dart'; // ✅ add
 
 class SettlementService {
   final DebtService debtService;
   final DeliveryService deliveryService;
   final SettlementRepo settlementRepo;
+  final ExpenseService expenseService; // ✅ add
 
   SettlementService({
     required this.debtService,
     required this.deliveryService,
     required this.settlementRepo,
+    required this.expenseService, // ✅ add
   });
-
-  Future<SettlementRecord> settle({
-    required String supplier,
-    required String fuelType,
-    required double amount,
-    required String source,
-  }) async {
-    return settleSplit(
-      supplier: supplier,
-      fuelType: fuelType,
-      salesPaid: amount,
-      externalPaid: 0,
-      source: source,
-    );
-  }
 
   Future<SettlementRecord> settleSplit({
     required String supplier,
@@ -81,11 +69,19 @@ class SettlementService {
     );
 
     await settlementRepo.insert(record);
+
+    // ✅ settlement payment from sales becomes expense (locks)
+    if (salesPaid > 0) {
+      await expenseService.createLockedExpense(
+        amount: salesPaid,
+        category: 'Settlement Payment',
+        comment: '$supplier • $fuelType',
+        source: 'Sales',
+        refId: 'SET:${record.id}',
+        date: record.date,
+      );
+    }
+
     return record;
   }
-
-  double get totalDebt => debtService.totalDebt;
-
-  double supplierCredit(String supplier) =>
-      deliveryService.totalCreditForSupplier(supplier);
 }

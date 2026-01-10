@@ -8,18 +8,24 @@ class DeliveryRecord {
 
   final double liters;
   final double totalCost;
+
+  /// cash actually paid now (Sales + External)
   final double amountPaid;
 
+  /// split
   final double salesPaid;
   final double externalPaid;
 
+  /// NEW: overpaid/credit used to offset this delivery (from settlement credits)
+  final double creditUsed;
+
   final String source;
 
-  double debt;
-  double credit;
+  /// 0 = draft, 1 = submitted
+  final int isSubmitted;
 
-  // ✅ lock flag (editable until submit)
-  final int isSubmitted; // 0 = draft, 1 = submitted
+  double debt;   // remaining debt after (amountPaid + creditUsed)
+  double credit; // extra credit generated if paid more than cost
 
   DeliveryRecord({
     required this.id,
@@ -32,9 +38,10 @@ class DeliveryRecord {
     required this.source,
     this.salesPaid = 0.0,
     this.externalPaid = 0.0,
+    this.creditUsed = 0.0,
+    this.isSubmitted = 0,
     this.debt = 0.0,
     this.credit = 0.0,
-    this.isSubmitted = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -47,10 +54,11 @@ class DeliveryRecord {
         'amountPaid': amountPaid,
         'salesPaid': salesPaid,
         'externalPaid': externalPaid,
+        'creditUsed': creditUsed,
         'source': source,
+        'isSubmitted': isSubmitted,
         'debt': debt,
         'credit': credit,
-        'isSubmitted': isSubmitted,
       };
 
   factory DeliveryRecord.fromJson(Map<String, dynamic> json) {
@@ -64,10 +72,11 @@ class DeliveryRecord {
       amountPaid: (json['amountPaid'] as num).toDouble(),
       salesPaid: (json['salesPaid'] as num?)?.toDouble() ?? 0.0,
       externalPaid: (json['externalPaid'] as num?)?.toDouble() ?? 0.0,
+      creditUsed: (json['creditUsed'] as num?)?.toDouble() ?? 0.0,
       source: (json['source'] as String?) ?? '',
+      isSubmitted: (json['isSubmitted'] as int?) ?? 0,
       debt: (json['debt'] as num?)?.toDouble() ?? 0.0,
       credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
-      isSubmitted: (json['isSubmitted'] as num?)?.toInt() ?? 0,
     );
   }
 }

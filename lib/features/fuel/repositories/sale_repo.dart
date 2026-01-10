@@ -68,4 +68,23 @@ class SaleRepo {
     await db.delete('sales');
   }
 
+    Future<double> fetchTodayTotalAmount() async {
+    final db = await AppDatabase.instance;
+
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).toIso8601String();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+
+    final rows = await db.rawQuery(
+      'SELECT SUM(totalAmount) AS total FROM sales WHERE date BETWEEN ? AND ?',
+      [start, end],
+    );
+
+    final v = rows.first['total'];
+    if (v == null) return 0.0;
+    return (v as num).toDouble();
+  }
+
 }
+
+

@@ -36,23 +36,27 @@ class Services {
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
 
-  static final delivery = DeliveryService(
-    tankService: tank,
-    debtService: debt,
-    deliveryRepo: deliveryRepo,
-  );
-
+  // ✅ SALE SERVICE (THIS IS WHAT YOU WERE MISSING)
   static final sale = SaleService(
     tankService: tank,
     saleRepo: saleRepo,
   );
 
+  // ✅ create expense BEFORE delivery (delivery depends on it)
   static final expense = ExpenseService(expenseRepo);
+
+  static final delivery = DeliveryService(
+    tankService: tank,
+    debtService: debt,
+    expenseService: expense,
+    deliveryRepo: deliveryRepo,
+  );
 
   static final settlement = SettlementService(
     debtService: debt,
     deliveryService: delivery,
-    settlementRepo: settlementRepo, // ✅ ADD THIS
+    settlementRepo: settlementRepo,
+    expenseService: expense,
   );
 
   static final dayEntry = DayEntryService(dayEntryRepo);
@@ -63,7 +67,7 @@ class Services {
   static Future<void> init() async {
     await tank.loadFromDb();
     await debt.loadFromDb();
-    await delivery.loadFromDb(); // ✅ good
+    await delivery.loadFromDb();
     await expense.loadFromDb();
 
     final today = DateTime.now();

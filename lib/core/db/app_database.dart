@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 3, // ✅ bump
+        version: 4, // ✅ bump
         onCreate: _onCreate,
         onUpgrade: _onUpgrade, // ✅ migration
       ),
@@ -51,13 +51,14 @@ class AppDatabase {
         amountPaid REAL NOT NULL DEFAULT 0,
         salesPaid REAL NOT NULL DEFAULT 0,
         externalPaid REAL NOT NULL DEFAULT 0,
+        creditUsed REAL NOT NULL DEFAULT 0,
         source TEXT,
         debt REAL NOT NULL DEFAULT 0,
         credit REAL NOT NULL DEFAULT 0,
         isSubmitted INTEGER NOT NULL DEFAULT 0
-
       )
     ''');
+
 
     await db.execute('''
       CREATE TABLE debts (
@@ -120,14 +121,22 @@ class AppDatabase {
     }
 
     static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 3) {
-      // ✅ Deliveries lock column
-      await db.execute("ALTER TABLE deliveries ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
+      // Always use try/catch so app won't crash if column already exists.
 
-      // ✅ If settlements split columns were not present in old versions
-      await db.execute("ALTER TABLE settlements ADD COLUMN salesPaid REAL NOT NULL DEFAULT 0");
-      await db.execute("ALTER TABLE settlements ADD COLUMN externalPaid REAL NOT NULL DEFAULT 0");
+      // v4 additions (if you ever had db <4)
+      if (oldVersion < 4) {
+        try {
+          await db.execute("ALTER TABLE deliveries ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
+        } catch (_) {}
+      }
+
+      // v5 additions (this fixes your crash)
+      if (oldVersion < 5) {
+        try {
+          await db.execute("ALTER TABLE deliveries ADD COLUMN creditUsed REAL NOT NULL DEFAULT 0");
+        } catch (_) {}
+      }
     }
-  }
 
 }
+

@@ -1,4 +1,4 @@
-// lib/features/fuel/services/sale_service.dart
+// lib/core/services/sale_service.dart
 
 import 'dart:math';
 import '../../core/models/sale_record.dart'; // Adjust path if needed
@@ -97,6 +97,11 @@ class SaleService {
 
     _draftSales.clear();
   }
+
+  Future<double> todayTotalAmount() async {
+    return await saleRepo.fetchTodayTotalAmount();
+  }
+
 
   /// Undo all draft sales and return fuel to tanks
   void undoAllDraft() {
