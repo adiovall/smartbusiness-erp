@@ -2,7 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '/../core/services/service_registry.dart';
+
+import 'package:temp_fuel_app/core/models/sale_record.dart'; // ✅ FIX
+import 'package:temp_fuel_app/core/services/service_registry.dart';
+
 import '../../../domain/fuel_mapping.dart';
 import '../../../domain/sale_draft_engine.dart';
 
@@ -175,15 +178,35 @@ class _SaleTabState extends State<SaleTab> {
     });
   }
 
+  Future<void> _persistSalesToDb() async {
+    for (int i = 0; i < recorded.length; i++) {
+      final p = recorded[i];
+
+      final sale = SaleRecord(
+        id: '${DateTime.now().microsecondsSinceEpoch}_$i',
+        date: DateTime.now(),
+        pumpNo: p.pumpNo.toString(),
+        fuelType: _abbrFuel(p.fuel), // PMS/AGO/DPK/GAS
+        liters: p.liters,
+        unitPrice: p.unitPrice,
+      );
+
+      await Services.saleRepo.insert(sale);
+    }
+  }
+
   Future<void> _submitWithBalanceCheck() async {
+    // EXACT PAY
     if (balance.abs() < 0.01) {
       await _applyTankConsumption();
+      await _persistSalesToDb();
       widget.onSaleRecorded(totalSold);
       _undoAll();
       shortageCommentCtrl.clear();
       return;
     }
 
+    // OVERPAY -> create credit note (your logic)
     if (balance > 0) {
       final bool? createCredit = await showDialog<bool>(
         context: context,
@@ -203,6 +226,7 @@ class _SaleTabState extends State<SaleTab> {
 
       if (createCredit != true) return;
     } else {
+      // SHORTAGE -> record expense lock
       final shortage = -balance;
 
       final bool? recordShortage = await showDialog<bool>(
@@ -253,6 +277,8 @@ class _SaleTabState extends State<SaleTab> {
     }
 
     await _applyTankConsumption();
+    await _persistSalesToDb();
+
     widget.onSaleRecorded(totalSold);
     _undoAll();
     shortageCommentCtrl.clear();
@@ -338,7 +364,6 @@ class _SaleTabState extends State<SaleTab> {
     );
   }
 
-  // ✅ compact icon to prevent overflow in tight widths
   Widget _miniIcon({
     required IconData icon,
     required Color color,
@@ -460,7 +485,7 @@ class _SaleTabState extends State<SaleTab> {
 
           const SizedBox(width: 22),
 
-          // RIGHT (overflow-safe; buttons stay horizontal)
+          // RIGHT
           Expanded(
             flex: 2,
             child: Column(
@@ -523,7 +548,6 @@ class _SaleTabState extends State<SaleTab> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: canSubmit ? _submitWithBalanceCheck : null,
-                        // icon: const Icon(Icons.send),
                         label: const Text('Submit'),
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                       ),
@@ -554,7 +578,7 @@ class _SaleTabState extends State<SaleTab> {
           Expanded(child: Text('Liters', style: h)),
           Expanded(child: Text('Unit', style: h)),
           Expanded(child: Text('Amount', style: h)),
-          SizedBox(width: 72), // ✅ match compact actions width
+          SizedBox(width: 72),
         ],
       ),
     );
@@ -598,8 +622,6 @@ class _SaleTabState extends State<SaleTab> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-
-          // ✅ FIX: compact action cell (no overflow)
           SizedBox(
             width: 72,
             child: Row(

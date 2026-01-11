@@ -53,13 +53,11 @@ class DeliveryService {
     }
 
     if (remaining > 0.01) {
-      // means credits changed elsewhere
       throw Exception('Not enough overpaid credit available');
     }
   }
 
-
-    /// ✅ Settlement overpaid → store as supplier credit (SUBMITTED)
+  /// ✅ Settlement overpaid → store as supplier credit (SUBMITTED)
   /// This does NOT touch tanks. It only creates a credit row that delivery can consume later.
   Future<void> addCredit({
     required String supplier,
@@ -79,9 +77,9 @@ class DeliveryService {
       amountPaid: 0,
       salesPaid: 0,
       externalPaid: 0,
-      creditUsed: 0, // ✅ important since your model now has it
+      creditUsed: 0,
       source: source,
-      isSubmitted: 1, // ✅ credit is real immediately
+      isSubmitted: 1,
       debt: 0,
       credit: amount,
     );
@@ -90,19 +88,21 @@ class DeliveryService {
     await deliveryRepo.insert(creditRecord);
   }
 
-
-
   /// ✅ Create draft delivery (editable/deletable until submit)
+  ///
+  /// IMPORTANT MODEL:
+  /// - amountPaid is the TOTAL SETTLED amount (cash + creditUsed)
+  /// - creditUsed is stored separately for consumeCredit() during submit
   Future<DeliveryRecord> recordDraftDelivery({
     required String supplier,
     required String fuelType,
     required double liters,
     required double totalCost,
-    required double amountPaid,
+    required double amountPaid,     // ✅ total settled (cash + creditUsed)
     required String source,
-    required double salesPaid,
-    required double externalPaid,
-    required double creditUsed,
+    required double salesPaid,      // ✅ cash from Sales only
+    required double externalPaid,   // ✅ cash from External only
+    required double creditUsed,     // ✅ credit used (overpaid)
   }) async {
     if (supplier.trim().isEmpty) throw Exception('Supplier is required');
     if (liters <= 0) throw Exception('Delivered liters must be greater than zero');
@@ -115,13 +115,11 @@ class DeliveryService {
       throw Exception('Delivery exceeds tank capacity. Update tank capacity first.');
     }
 
-
-    // tank changes now (draft behavior)
+    // ✅ tank changes now (draft behavior)
     tankService.addFuel(fuelType, liters);
 
-    // effective paid includes creditUsed
-    final effectivePaid = amountPaid + creditUsed;
-    final diff = effectivePaid - totalCost;
+    // ✅ DO NOT add creditUsed again — amountPaid already includes it.
+    final diff = amountPaid - totalCost;
 
     final debt = diff < 0 ? diff.abs() : 0.0;
     final credit = diff > 0 ? diff : 0.0;
@@ -150,13 +148,14 @@ class DeliveryService {
   }
 
   /// ✅ Edit draft delivery (full edit allowed until submit)
+  /// ALSO FIXES: tank adjustment (your old code validated but didn't update tank levels)
   Future<DeliveryRecord> editDraftDelivery({
     required String id,
     required String supplier,
     required String fuelType,
     required double liters,
     required double totalCost,
-    required double amountPaid,
+    required double amountPaid,     // ✅ total settled (cash + creditUsed)
     required String source,
     required double salesPaid,
     required double externalPaid,
@@ -164,9 +163,7 @@ class DeliveryService {
   }) async {
     final d = _deliveries.firstWhere((e) => e.id == id);
 
-    if (d.isSubmitted == 1) {
-      throw Exception('Cannot edit after submit');
-    }
+    if (d.isSubmitted == 1) throw Exception('Cannot edit after submit');
 
     if (supplier.trim().isEmpty) throw Exception('Supplier is required');
     if (liters <= 0) throw Exception('Liters must be greater than zero');
@@ -174,25 +171,38 @@ class DeliveryService {
     if (amountPaid < 0) throw Exception('Paid cannot be negative');
     if (creditUsed < 0) throw Exception('Credit used cannot be negative');
 
-    // Tank adjust
+    // ✅ Capacity checks
     if (d.fuelType == fuelType) {
-  final delta = liters - d.liters;
-  if (delta > 0) {
-    final tank = tankService.getTank(fuelType);
-    if (tank != null && (tank.currentLevel + delta) > tank.capacity + 0.0001) {
-      throw Exception('Update exceeds tank capacity. Update tank capacity first.');
+      final delta = liters - d.liters;
+      if (delta > 0) {
+        final tank = tankService.getTank(fuelType);
+        if (tank != null && (tank.currentLevel + delta) > tank.capacity + 0.0001) {
+          throw Exception('Update exceeds tank capacity. Update tank capacity first.');
+        }
+      }
+    } else {
+      final newTank = tankService.getTank(fuelType);
+      if (newTank != null && (newTank.currentLevel + liters) > newTank.capacity + 0.0001) {
+        throw Exception('New fuel tank capacity exceeded. Update tank capacity first.');
+      }
     }
-  }
-} else {
-  final newTank = tankService.getTank(fuelType);
-  if (newTank != null && (newTank.currentLevel + liters) > newTank.capacity + 0.0001) {
-    throw Exception('New fuel tank capacity exceeded. Update tank capacity first.');
-  }
-}
 
+    // ✅ FIX: apply tank adjustments for edit
+    if (d.fuelType == fuelType) {
+      final delta = liters - d.liters;
+      if (delta > 0) {
+        tankService.addFuel(fuelType, delta);
+      } else if (delta < 0) {
+        tankService.removeFuel(fuelType, delta.abs());
+      }
+    } else {
+      // remove old liters from old tank, add new liters to new tank
+      if (d.liters > 0) tankService.removeFuel(d.fuelType, d.liters);
+      tankService.addFuel(fuelType, liters);
+    }
 
-    final effectivePaid = amountPaid + creditUsed;
-    final diff = effectivePaid - totalCost;
+    // ✅ DO NOT add creditUsed again — amountPaid already includes it.
+    final diff = amountPaid - totalCost;
 
     final debt = diff < 0 ? diff.abs() : 0.0;
     final credit = diff > 0 ? diff : 0.0;
@@ -224,9 +234,7 @@ class DeliveryService {
   Future<void> deleteDraftDelivery(String id) async {
     final d = _deliveries.firstWhere((e) => e.id == id);
 
-    if (d.isSubmitted == 1) {
-      throw Exception('Cannot delete after submit');
-    }
+    if (d.isSubmitted == 1) throw Exception('Cannot delete after submit');
 
     // reverse tank addition
     if (d.liters > 0) {
@@ -239,8 +247,8 @@ class DeliveryService {
 
   /// ✅ FINALIZE: submit drafts
   /// - consume overpaid credits used
-  /// - create locked expense for salesPaid
-  /// - create debt records
+  /// - create locked expense for salesPaid (cash from Sales only)
+  /// - create debt records (debt already correct from amountPaid)
   Future<void> submitDraftDeliveries(List<DeliveryRecord> drafts) async {
     if (drafts.isEmpty) return;
 
@@ -253,7 +261,7 @@ class DeliveryService {
         await consumeCredit(d.supplier, d.creditUsed);
       }
 
-      // 3) create locked expense for sales part
+      // 3) locked expense for sales part (cash from Sales only)
       if (d.salesPaid > 0) {
         await expenseService.createLockedExpense(
           amount: d.salesPaid,
@@ -265,7 +273,7 @@ class DeliveryService {
         );
       }
 
-      // 4) create debt record (only now)
+      // 4) create debt record
       if (d.debt > 0) {
         await debtService.createDebt(
           supplier: d.supplier,
@@ -298,4 +306,3 @@ class DeliveryService {
     }
   }
 }
-
