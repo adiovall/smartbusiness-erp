@@ -82,6 +82,7 @@ class DeliveryService {
       isSubmitted: 1,
       debt: 0,
       credit: amount,
+      creditInitial: amount,
     );
 
     _deliveries.add(creditRecord);
@@ -139,6 +140,7 @@ class DeliveryService {
       isSubmitted: 0,
       debt: debt,
       credit: credit,
+      creditInitial: credit,
     );
 
     _deliveries.add(delivery);
@@ -222,6 +224,7 @@ class DeliveryService {
       isSubmitted: 0,
       debt: debt,
       credit: credit,
+      creditInitial: credit,
     );
 
     final idx = _deliveries.indexWhere((e) => e.id == id);

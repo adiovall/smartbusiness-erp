@@ -16,7 +16,7 @@ class DeliveryRecord {
   final double salesPaid;
   final double externalPaid;
 
-  /// NEW: overpaid/credit used to offset this delivery (from settlement credits)
+  /// overpaid/credit used to offset this delivery (from settlement credits)
   final double creditUsed;
 
   final String source;
@@ -24,8 +24,12 @@ class DeliveryRecord {
   /// 0 = draft, 1 = submitted
   final int isSubmitted;
 
-  double debt;   // remaining debt after (amountPaid + creditUsed)
-  double credit; // extra credit generated if paid more than cost
+  double debt; // remaining debt after (amountPaid + creditUsed)
+  double credit; // remaining credit (mutable; gets consumed over time)
+
+  /// ✅ NEW: original credit amount when the credit row was created
+  /// This never changes. credit reduces; creditInitial stays the original.
+  final double creditInitial;
 
   DeliveryRecord({
     required this.id,
@@ -42,6 +46,7 @@ class DeliveryRecord {
     this.isSubmitted = 0,
     this.debt = 0.0,
     this.credit = 0.0,
+    this.creditInitial = 0.0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -59,9 +64,16 @@ class DeliveryRecord {
         'isSubmitted': isSubmitted,
         'debt': debt,
         'credit': credit,
+        'creditInitial': creditInitial,
       };
 
   factory DeliveryRecord.fromJson(Map<String, dynamic> json) {
+    final credit = (json['credit'] as num?)?.toDouble() ?? 0.0;
+
+    // ✅ Backward-compatible: if old rows don’t have creditInitial,
+    // treat initial == current credit (best possible truth).
+    final creditInitial = (json['creditInitial'] as num?)?.toDouble() ?? credit;
+
     return DeliveryRecord(
       id: json['id'] as String,
       date: DateTime.parse(json['date'] as String),
@@ -76,7 +88,8 @@ class DeliveryRecord {
       source: (json['source'] as String?) ?? '',
       isSubmitted: (json['isSubmitted'] as int?) ?? 0,
       debt: (json['debt'] as num?)?.toDouble() ?? 0.0,
-      credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
+      credit: credit,
+      creditInitial: creditInitial,
     );
   }
 }

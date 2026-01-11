@@ -34,6 +34,21 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
   }
 }
 
+ class _CreditPlan {
+    final double creditUsed;
+    final double salesAfter;
+    final double externalAfter;
+
+    const _CreditPlan({
+      required this.creditUsed,
+      required this.salesAfter,
+      required this.externalAfter,
+    });
+
+    double get paymentAfter => salesAfter + externalAfter;
+    double get effectivePaid => paymentAfter + creditUsed;
+  }
+
 class DeliveryTab extends StatefulWidget {
   final VoidCallback onSubmitted;
   final Function(double amount) onDeliveryRecorded;
@@ -55,26 +70,28 @@ class _DeliveryTabState extends State<DeliveryTab> {
   String selectedFuel = 'PMS';
   String source = 'External';
 
+  // IMPORTANT:
+  // supplierCtrl = logic controller (used in calculations)
+  // _supplierAutoCtrl = the visible autocomplete TextField controller
   final supplierCtrl = TextEditingController();
-  final litersCtrl = TextEditingController();
-  final costCtrl = TextEditingController();
   TextEditingController? _supplierAutoCtrl;
 
-  final paidCtrl = TextEditingController();     // single mode
-  final salesCtrl = TextEditingController();    // split mode
+  final litersCtrl = TextEditingController();
+  final costCtrl = TextEditingController();
+
+  final paidCtrl = TextEditingController(); // single mode
+  final salesCtrl = TextEditingController(); // split mode
   final externalCtrl = TextEditingController(); // split mode
 
   bool useOverpaid = false;
 
-  double supplierOverpaidAvailable = 0.0; // ✅ now means RESERVED-AWARE available
+  // supplier credit available (ALREADY RESERVED BY OTHER DRAFTS REMOVED)
+  double supplierOverpaidAvailable = 0.0;
+
+  // how much credit will be used (preview + saved)
   double creditUsedPreview = 0.0;
 
-  // ✅ backup cash fields when switching overpaid ON (so OFF restores)
-  String _backupPaidText = '';
-  String _backupSalesText = '';
-  String _backupExternalText = '';
-  bool _hasBackup = false;
-
+  // editing
   String? editingId;
   double _editingOldSalesPaid = 0.0;
   double _editingOldCreditUsed = 0.0;
@@ -99,16 +116,9 @@ class _DeliveryTabState extends State<DeliveryTab> {
   double _num(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '')) ?? 0.0;
   String _fmtInt(double v) => NumberFormat.decimalPattern('en_NG').format(v.round());
 
-  // CASH ONLY (no credit)
-  double get cashSalesOnly => showSplit ? _num(salesCtrl) : (source == 'Sales' ? _num(paidCtrl) : 0.0);
-  double get cashExternalOnly => showSplit ? _num(externalCtrl) : (source == 'External' ? _num(paidCtrl) : 0.0);
-  double get cashPaid => showSplit ? (cashSalesOnly + cashExternalOnly) : _num(paidCtrl);
-
-  // TOTAL SETTLED (cash + credit)
-  double get amountPaid => cashPaid + (useOverpaid ? creditUsedPreview : 0.0);
-
-  double get salesPaid => cashSalesOnly;
-  double get externalPaid => cashExternalOnly;
+  double get salesPaid => showSplit ? _num(salesCtrl) : (source == 'Sales' ? _num(paidCtrl) : 0.0);
+  double get externalPaid => showSplit ? _num(externalCtrl) : (source == 'External' ? _num(paidCtrl) : 0.0);
+  double get amountPaid => showSplit ? (salesPaid + externalPaid) : _num(paidCtrl);
 
   double get totalLiters => _drafts.fold(0.0, (sum, r) => sum + r.liters);
   double get totalCost => _drafts.fold(0.0, (sum, r) => sum + r.totalCost);
@@ -123,13 +133,12 @@ class _DeliveryTabState extends State<DeliveryTab> {
         '${n.day.toString().padLeft(2, '0')}';
   }
 
-  // ============================
-  // SALES AVAILABLE
-  // ============================
+  /* ===================== NET SALES ===================== */
   Future<void> _refreshNetSales() async {
     setState(() => _refreshingNet = true);
 
-    final sales = await Services.sale.todayTotalAmount(includeDraft: false);
+    // committed + draft (so Delivery sees sales even before submit)
+    final sales = await Services.sale.todayTotalAmount(includeDraft: true);
     final exp = Services.expense.todayTotal;
 
     final net = sales - exp;
@@ -147,28 +156,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
     return available < 0 ? 0.0 : available;
   }
 
-  // ============================
-  // ✅ CREDIT RESERVATION (THIS IS THE MAIN FIX)
-  // ============================
-  double _reservedCreditInDraftsForSupplier(String supplier, {String? excludeDraftId}) {
-    return _drafts
-        .where((d) => d.supplier.toLowerCase() == supplier.toLowerCase())
-        .where((d) => excludeDraftId == null ? true : d.id != excludeDraftId)
-        .fold(0.0, (sum, d) => sum + d.creditUsed);
-  }
-
-  double _availableOverpaidForSupplier(String supplier) {
-    final base = Services.delivery.totalCreditForSupplier(supplier); // submitted credit left
-    final reserved = _reservedCreditInDraftsForSupplier(supplier, excludeDraftId: editingId);
-    final available = base - reserved;
-
-    // ✅ when editing, we excluded this draft from reserved, so no “adding back” needed
-    return available < 0 ? 0.0 : available;
-  }
-
-  // ============================
-  // INIT
-  // ============================
+  /* ===================== LIFECYCLE ===================== */
   @override
   void initState() {
     super.initState();
@@ -178,16 +166,19 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
     supplierCtrl.addListener(_refreshOverpaidForSupplier);
 
+    // If cost changes while toggle is ON, re-apply credit plan
     costCtrl.addListener(() {
-      if (useOverpaid) _applyOverpaidFirstAndRebalance();
+      if (useOverpaid) _applyCreditPlanAndUpdateFields();
     });
 
+    // Keep net sales updating when expenses change
     Services.expense.addListener(_onExpensesChanged);
   }
 
   void _onExpensesChanged() {
     if (!mounted) return;
     _refreshNetSales();
+    if (useOverpaid) _applyCreditPlanAndUpdateFields();
   }
 
   Future<void> _loadDraftToday() async {
@@ -230,11 +221,11 @@ class _DeliveryTabState extends State<DeliveryTab> {
     );
   }
 
-  // ✅ Record Draft should clear inputs + toggle, but NOT clear drafts
-    void _clearInputsOnly() {
-    // ✅ clear BOTH UI supplier field and logic supplier field
-    _supplierAutoCtrl?.clear();
+  /* ===================== CLEAR INPUTS ===================== */
+  void _clearInputsOnly() {
+    // Clear supplier BOTH controllers
     supplierCtrl.clear();
+    _supplierAutoCtrl?.clear();
 
     litersCtrl.clear();
     costCtrl.clear();
@@ -242,122 +233,179 @@ class _DeliveryTabState extends State<DeliveryTab> {
     salesCtrl.clear();
     externalCtrl.clear();
 
+    // Reset overpaid + previews
     useOverpaid = false;
     supplierOverpaidAvailable = 0.0;
     creditUsedPreview = 0.0;
 
-    _backupPaidText = '';
-    _backupSalesText = '';
-    _backupExternalText = '';
-    _hasBackup = false;
-
+    // Reset edit state
     editingId = null;
     _editingOldSalesPaid = 0.0;
     _editingOldCreditUsed = 0.0;
 
-    // ✅ hide keyboard + ensure toggle disappears instantly
-    FocusScope.of(context).unfocus();
-
     setState(() {});
   }
 
-
-  // ============================
-  // OVERPAID: USE FIRST ALWAYS
-  // ============================
+  /* ===================== OVERPAID AVAILABILITY (RESERVE DRAFTS) ===================== */
   void _refreshOverpaidForSupplier() {
     final sup = supplierCtrl.text.trim();
+
     if (sup.isEmpty) {
       setState(() {
         supplierOverpaidAvailable = 0.0;
         useOverpaid = false;
         creditUsedPreview = 0.0;
-        _hasBackup = false;
       });
       return;
     }
 
-    final available = _availableOverpaidForSupplier(sup);
+    // Base credit from submitted rows only
+    final base = Services.delivery.totalCreditForSupplier(sup);
+
+    // Reserve credit already used by TODAY drafts for same supplier (so availability reduces immediately)
+    final reservedByDrafts = _drafts
+        .where((d) => d.supplier.trim().toLowerCase() == sup.toLowerCase())
+        .fold(0.0, (s, d) => s + d.creditUsed);
+
+    // If editing, "free back" the credit of the draft being edited (so it doesn't double-reserve)
+    final reservedByOthers = (editingId != null) ? max(0.0, reservedByDrafts - _editingOldCreditUsed) : reservedByDrafts;
+
+    final available = base - reservedByOthers;
 
     setState(() {
-      supplierOverpaidAvailable = available;
-      if (available <= 0.0) {
+      supplierOverpaidAvailable = available < 0 ? 0.0 : available;
+
+      // Hide toggle if no credit
+      if (supplierOverpaidAvailable <= 0) {
         useOverpaid = false;
         creditUsedPreview = 0.0;
-        _hasBackup = false;
       }
     });
 
-    if (useOverpaid) _applyOverpaidFirstAndRebalance();
+    if (useOverpaid) {
+      _applyCreditPlanAndUpdateFields();
+    }
   }
 
-  /// RULES:
-  /// 1) If overpaid ON → use CREDIT FIRST up to FULL COST
-  /// 2) Only if credit < cost → use SALES first (bounded by sales available) then external
-  /// 3) If credit covers all → Sales=0 External=0, O=cost
-  void _applyOverpaidFirstAndRebalance() {
+  /* ===================== CREDIT PLAN (THE BEHAVIOUR YOU ASKED) ===================== */
+ 
+
+  _CreditPlan _computeCreditPlan({
+    required double cost,
+    required double baseSales,
+    required double baseExternal,
+    required double maxCredit,
+    required double maxSalesAvailable,
+    required bool allowSales,
+    required bool allowExternal,
+  }) {
+    if (cost <= 0) {
+      return const _CreditPlan(creditUsed: 0.0, salesAfter: 0.0, externalAfter: 0.0);
+    }
+
+    final basePayment = max(0.0, baseSales + baseExternal);
+    final creditCap = min(maxCredit, cost); // can't use credit > cost
+
+    // If even with all credit we still can't reach cost:
+    // ✅ Use all credit, but DO NOT reduce payments (never make the debt worse)
+    if (basePayment + creditCap < cost - 0.0001) {
+      // Keep payments as user entered
+      var s = allowSales ? baseSales : 0.0;
+      var e = allowExternal ? baseExternal : 0.0;
+
+      // sales cannot exceed available
+      if (allowSales && s > maxSalesAvailable) {
+        final overflow = s - maxSalesAvailable;
+        s = maxSalesAvailable;
+        if (allowExternal) {
+          e += overflow; // shift overflow to external if possible
+        }
+      }
+
+      return _CreditPlan(
+        creditUsed: creditCap,
+        salesAfter: s,
+        externalAfter: e,
+      );
+    }
+
+    // We can fully cover the cost with payment + credit.
+    // ✅ Use maximum credit to reduce payments as much as possible.
+    final creditUsed = creditCap;
+    final paymentAfter = max(0.0, cost - creditUsed);
+
+    // We must reduce basePayment down to paymentAfter.
+    // Your rule: reduce SALES burden first, then external.
+    final reduction = max(0.0, basePayment - paymentAfter);
+
+    double sAfter = allowSales ? max(0.0, baseSales - reduction) : 0.0;
+    double remainingReduction = max(0.0, reduction - (allowSales ? baseSales : 0.0));
+    double eAfter = allowExternal ? max(0.0, baseExternal - remainingReduction) : 0.0;
+
+    // sales cap enforcement (shift to external if needed)
+    if (allowSales && sAfter > maxSalesAvailable) {
+      final overflow = sAfter - maxSalesAvailable;
+      sAfter = maxSalesAvailable;
+      if (allowExternal) eAfter += overflow;
+    }
+
+    return _CreditPlan(
+      creditUsed: creditUsed,
+      salesAfter: sAfter,
+      externalAfter: eAfter,
+    );
+  }
+
+  void _applyCreditPlanAndUpdateFields() {
     final cost = _num(costCtrl);
     if (cost <= 0) return;
 
     final sup = supplierCtrl.text.trim();
-    final maxCredit = sup.isEmpty ? 0.0 : _availableOverpaidForSupplier(sup);
-
-    final usedCredit = useOverpaid ? min(maxCredit, cost) : 0.0;
-    final remaining = max(0.0, cost - usedCredit);
+    if (sup.isEmpty) return;
 
     final maxSales = _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
+    final maxCredit = supplierOverpaidAvailable;
+
+    // Base amounts = current fields (when you toggle ON, you’re asking it to rebalance FROM CURRENT)
+    double baseSales = 0.0;
+    double baseExternal = 0.0;
+
+    if (source == 'Sales') {
+      baseSales = _num(paidCtrl);
+      baseExternal = 0.0;
+    } else if (source == 'External') {
+      baseSales = 0.0;
+      baseExternal = _num(paidCtrl);
+    } else {
+      baseSales = _num(salesCtrl);
+      baseExternal = _num(externalCtrl);
+    }
+
+    final plan = _computeCreditPlan(
+      cost: cost,
+      baseSales: baseSales,
+      baseExternal: baseExternal,
+      maxCredit: maxCredit,
+      maxSalesAvailable: maxSales,
+      allowSales: _usesSalesMoney,
+      allowExternal: (source != 'Sales'),
+    );
 
     setState(() {
-      creditUsedPreview = usedCredit;
-      supplierOverpaidAvailable = maxCredit; // keep UI in sync
-
-      if (remaining <= 0.0001) {
-        paidCtrl.text = '0';
-        salesCtrl.text = '0';
-        externalCtrl.text = '0';
-        return;
-      }
+      creditUsedPreview = plan.creditUsed;
 
       if (source == 'Sales') {
-        final s = min(remaining, maxSales);
-        paidCtrl.text = _fmtInt(s);
+        paidCtrl.text = _fmtInt(plan.salesAfter);
       } else if (source == 'External') {
-        paidCtrl.text = _fmtInt(remaining);
+        paidCtrl.text = _fmtInt(plan.externalAfter);
       } else {
-        final s = min(remaining, maxSales);
-        final e = max(0.0, remaining - s);
-        salesCtrl.text = _fmtInt(s);
-        externalCtrl.text = _fmtInt(e);
+        salesCtrl.text = _fmtInt(plan.salesAfter);
+        externalCtrl.text = _fmtInt(plan.externalAfter);
       }
     });
   }
 
-  void _toggleOverpaid(bool v) {
-    setState(() => useOverpaid = v);
-
-    if (v) {
-      if (!_hasBackup) {
-        _backupPaidText = paidCtrl.text;
-        _backupSalesText = salesCtrl.text;
-        _backupExternalText = externalCtrl.text;
-        _hasBackup = true;
-      }
-      _applyOverpaidFirstAndRebalance();
-    } else {
-      setState(() {
-        creditUsedPreview = 0.0;
-        if (_hasBackup) {
-          paidCtrl.text = _backupPaidText;
-          salesCtrl.text = _backupSalesText;
-          externalCtrl.text = _backupExternalText;
-        }
-      });
-    }
-  }
-
-  // ============================
-  // STRICT TANK CAPACITY CHECK
-  // ============================
+  /* ===================== STRICT TANK CAPACITY CHECK ===================== */
   bool _passesTankCapacityCheck({
     required String newFuelType,
     required double newLiters,
@@ -408,17 +456,16 @@ class _DeliveryTabState extends State<DeliveryTab> {
     return true;
   }
 
-  // ============================
-  // EDIT / DELETE / SAVE
-  // ============================
-    void _startEdit(core.DeliveryRecord r) {
+  /* ===================== EDIT / DELETE / SAVE ===================== */
+  void _startEdit(core.DeliveryRecord r) {
     setState(() {
       editingId = r.id;
       _editingOldSalesPaid = r.salesPaid;
       _editingOldCreditUsed = r.creditUsed;
 
-      _supplierAutoCtrl?.text = r.supplier; // ✅ UI
-      supplierCtrl.text = r.supplier;       // ✅ logic
+      // Supplier: update both controllers
+      supplierCtrl.text = r.supplier;
+      _supplierAutoCtrl?.text = r.supplier;
 
       selectedFuel = r.fuelType;
       source = r.source;
@@ -430,27 +477,27 @@ class _DeliveryTabState extends State<DeliveryTab> {
         salesCtrl.text = _fmtInt(r.salesPaid);
         externalCtrl.text = _fmtInt(r.externalPaid);
         paidCtrl.clear();
+      } else if (r.source == 'Sales') {
+        paidCtrl.text = _fmtInt(r.salesPaid); // keep consistent
+        salesCtrl.clear();
+        externalCtrl.clear();
       } else {
-        paidCtrl.text = _fmtInt(r.amountPaid);
+        paidCtrl.text = _fmtInt(r.externalPaid);
         salesCtrl.clear();
         externalCtrl.clear();
       }
 
       useOverpaid = r.creditUsed > 0;
       creditUsedPreview = r.creditUsed;
-
-      _backupPaidText = paidCtrl.text;
-      _backupSalesText = salesCtrl.text;
-      _backupExternalText = externalCtrl.text;
-      _hasBackup = true;
-
-      supplierOverpaidAvailable =
-          _availableOverpaidForSupplier(r.supplier) + r.creditUsed; // ✅ allow re-edit
     });
 
-    if (useOverpaid) _applyOverpaidFirstAndRebalance();
-  }
+    _refreshOverpaidForSupplier();
 
+    // If overpaid was used, we want the toggle ON and the fields consistent
+    if (useOverpaid) {
+      _applyCreditPlanAndUpdateFields();
+    }
+  }
 
   Future<void> _deleteDraft(core.DeliveryRecord r) async {
     final ok = await showDialog<bool>(
@@ -479,7 +526,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
       _toast('Deleted.', green: true);
 
-      // ✅ releasing reserved credit updates availability
+      // refresh availability after delete (reserved credit released)
       _refreshOverpaidForSupplier();
       _refreshNetSales();
     } catch (e) {
@@ -499,18 +546,18 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
     if (!_passesTankCapacityCheck(newFuelType: selectedFuel, newLiters: liters)) return;
 
-    if (useOverpaid) _applyOverpaidFirstAndRebalance();
+    // If toggle ON, rebalance once more before validation/save
+    if (useOverpaid) _applyCreditPlanAndUpdateFields();
 
-    // ✅ sales cap check
+    // sales cap check
     final maxSales = _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
     if (_usesSalesMoney && salesPaid > maxSales + 0.01) {
       _toast('Sales payment cannot exceed Sales available. Available: ${money.format(maxSales)}');
       return;
     }
 
-    // ✅ used credit must be from RESERVED-AWARE available
-    final creditAvailNow = _availableOverpaidForSupplier(supplier);
-    final usedCredit = useOverpaid ? min(creditAvailNow, cost) : 0.0;
+    final maxCredit = supplierOverpaidAvailable;
+    final usedCredit = useOverpaid ? min(maxCredit, cost) : 0.0;
 
     try {
       core.DeliveryRecord saved;
@@ -525,7 +572,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
           source: source,
           salesPaid: salesPaid,
           externalPaid: externalPaid,
-          creditUsed: usedCredit,
+          creditUsed: useOverpaid ? creditUsedPreview : 0.0, // ✅ truth
         );
 
         setState(() => _drafts.insert(0, saved));
@@ -542,7 +589,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
           source: source,
           salesPaid: salesPaid,
           externalPaid: externalPaid,
-          creditUsed: usedCredit,
+          creditUsed: useOverpaid ? creditUsedPreview : 0.0, // ✅ truth
         );
 
         setState(() {
@@ -560,11 +607,11 @@ class _DeliveryTabState extends State<DeliveryTab> {
         });
       }
 
-      // ✅ AFTER RECORD: clear inputs and toggle for next entry (drafts remain)
+      // ✅ IMPORTANT: after record, CLEAR EVERYTHING for new input
       _clearInputsOnly();
       widget.onSubmitted();
 
-      // refresh for accurate net sales/availability
+      // refresh because drafts affect both available sales and reserved overpaid
       _refreshNetSales();
     } catch (e) {
       _toast('Error: $e');
@@ -583,14 +630,13 @@ class _DeliveryTabState extends State<DeliveryTab> {
         submittedAt: DateTime.now(),
       );
 
-      // ✅ submit/clear clears drafts
       setState(() => _drafts.clear());
-
       _clearInputsOnly();
       widget.onSubmitted();
 
       _toast('Delivery Submitted. Drafts locked.', green: true);
 
+      // after submit, credit is truly consumed in backend (consumeCredit)
       _refreshNetSales();
       _refreshOverpaidForSupplier();
     } catch (e) {
@@ -624,13 +670,12 @@ class _DeliveryTabState extends State<DeliveryTab> {
       for (final id in ids) {
         await Services.delivery.deleteDraftDelivery(id);
       }
-
-      // ✅ clears drafts
       setState(() => _drafts.clear());
-
       _clearInputsOnly();
+
       _toast('Drafts cleared.', green: true);
 
+      // refresh because reserved credit is released
       _refreshNetSales();
       _refreshOverpaidForSupplier();
     } catch (e) {
@@ -638,9 +683,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
     }
   }
 
-  // ============================
-  // UI HELPERS
-  // ============================
+  /* ===================== UI HELPERS ===================== */
   InputDecoration _input(String label) => InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: textSecondary),
@@ -667,7 +710,10 @@ class _DeliveryTabState extends State<DeliveryTab> {
         ],
         decoration: _input(label),
         style: const TextStyle(color: textPrimary),
-        onChanged: (_) => onChanged?.call(),
+        onChanged: (_) {
+          if (useOverpaid) _applyCreditPlanAndUpdateFields();
+          onChanged?.call();
+        },
       );
 
   Widget _drop(String label, String v, List<String> items, ValueChanged<String?> f) {
@@ -688,8 +734,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
     );
   }
 
-  // ✅ supplier autocomplete
-    Widget _supplierAutocomplete(String label, TextEditingController c) {
+  // ✅ supplier autocomplete (FIXES your red line by declaring _supplierAutoCtrl above)
+  Widget _supplierAutocomplete(String label, TextEditingController c) {
     return Autocomplete<String>(
       optionsBuilder: (TextEditingValue value) {
         final q = value.text.trim().toLowerCase();
@@ -703,17 +749,15 @@ class _DeliveryTabState extends State<DeliveryTab> {
         _refreshOverpaidForSupplier();
       },
       fieldViewBuilder: (_, ctrl, focus, __) {
-        // ✅ keep reference to the real controller controlling the visible text field
         _supplierAutoCtrl = ctrl;
 
-        // ✅ ensure logic controller mirrors what user is typing
+        // sync logic controller to what's visible
         if (c.text != ctrl.text) c.value = ctrl.value;
 
         return TextField(
           controller: ctrl,
           focusNode: focus,
           onChanged: (_) {
-            // ✅ sync to logic controller so your credit logic works
             if (c.text != ctrl.text) c.value = ctrl.value;
             _refreshOverpaidForSupplier();
           },
@@ -721,7 +765,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
             suffixIcon: _loadingSuppliers
                 ? const Padding(
                     padding: EdgeInsets.all(12),
-                    child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                    child: SizedBox(width: 14, height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
                   )
                 : const Icon(Icons.search, color: Colors.white54),
           ),
@@ -730,7 +775,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
       },
     );
   }
-
 
   String _statusText(core.DeliveryRecord r) {
     if (r.debt > 0) return 'DEBT';
@@ -757,9 +801,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
     );
   }
 
-  // ============================
-  // BUILD
-  // ============================
+  /* ===================== BUILD ===================== */
   @override
   Widget build(BuildContext context) {
     final maxSales = _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
@@ -785,7 +827,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
                 _drop('Fuel Type', selectedFuel, fuels, (v) {
                   setState(() => selectedFuel = v!);
-                  if (useOverpaid) _applyOverpaidFirstAndRebalance();
+                  if (useOverpaid) _applyCreditPlanAndUpdateFields();
                 }),
                 const SizedBox(height: 8),
 
@@ -809,14 +851,18 @@ class _DeliveryTabState extends State<DeliveryTab> {
                       child: _drop('Source', source, sources, (v) {
                         setState(() {
                           source = v!;
+
+                          // stop carry-over: clear payment fields when switching
                           paidCtrl.clear();
                           salesCtrl.clear();
                           externalCtrl.clear();
+
+                          // reset toggle + preview when changing source
+                          useOverpaid = false;
+                          creditUsedPreview = 0.0;
                         });
 
-                        _hasBackup = false;
-
-                        if (useOverpaid) _applyOverpaidFirstAndRebalance();
+                        _refreshOverpaidForSupplier();
                       }),
                     ),
                     const SizedBox(width: 8),
@@ -829,9 +875,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
                                 ? 'External Amount (₦)'
                                 : 'Sales Amount (₦)',
                         source == 'External+Sales' ? salesCtrl : paidCtrl,
-                        onChanged: () {
-                          if (useOverpaid) _applyOverpaidFirstAndRebalance();
-                        },
                       ),
                     ),
                   ],
@@ -839,23 +882,22 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
                 if (source == 'External+Sales') ...[
                   const SizedBox(height: 8),
-                  _numField('External Amount (₦)', externalCtrl, onChanged: () {
-                    if (useOverpaid) _applyOverpaidFirstAndRebalance();
-                  }),
+                  _numField('External Amount (₦)', externalCtrl),
                 ],
 
                 const SizedBox(height: 10),
 
+                // sales available (only when relevant)
                 if (_usesSalesMoney)
                   Text(
-                    _refreshingNet
-                        ? 'Sales available: ...'
-                        : 'Sales available: ${money.format(maxSales)}',
+                    _refreshingNet ? 'Sales available: ...' : 'Sales available: ${money.format(maxSales)}',
                     style: const TextStyle(color: textSecondary, fontSize: 12),
                   ),
 
-                if (supplierOverpaidAvailable > 0 || creditUsedPreview > 0) ...[
-                  const SizedBox(height: 10),
+                const SizedBox(height: 10),
+
+                // Overpaid toggle only if supplier has credit
+                if (supplierOverpaidAvailable > 0) ...[
                   Row(
                     children: [
                       Expanded(
@@ -868,7 +910,15 @@ class _DeliveryTabState extends State<DeliveryTab> {
                         scale: 0.75,
                         child: Switch(
                           value: useOverpaid,
-                          onChanged: _toggleOverpaid,
+                          onChanged: (v) {
+                            setState(() => useOverpaid = v);
+
+                            if (v) {
+                              _applyCreditPlanAndUpdateFields();
+                            } else {
+                              setState(() => creditUsedPreview = 0.0);
+                            }
+                          },
                         ),
                       ),
                     ],
@@ -936,9 +986,9 @@ class _DeliveryTabState extends State<DeliveryTab> {
                                 final r = _drafts[i];
                                 final status = _statusText(r);
 
-                                final sTxt = money.format(r.salesPaid);
-                                final eTxt = money.format(r.externalPaid);
-                                final oTxt = money.format(r.creditUsed);
+                                final sTxt = r.salesPaid > 0 ? money.format(r.salesPaid) : '₦0';
+                                final eTxt = r.externalPaid > 0 ? money.format(r.externalPaid) : '₦0';
+                                final oTxt = r.creditUsed > 0 ? money.format(r.creditUsed) : '₦0';
 
                                 return Card(
                                   color: cardBg,
@@ -972,10 +1022,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
                                             style: const TextStyle(color: textSecondary),
                                           ),
                                           const SizedBox(height: 2),
-                                          Text(
-                                            'S:$sTxt  |  E:$eTxt  |  O:$oTxt',
-                                            style: const TextStyle(color: textSecondary),
-                                          ),
+                                          Text('S:$sTxt  |  E:$eTxt  |  O:$oTxt',
+                                              style: const TextStyle(color: textSecondary)),
                                         ],
                                       ),
                                     ),

@@ -24,6 +24,7 @@ class DeliveryRepo {
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
+        'creditInitial': d.creditInitial, // ✅ add
         'isSubmitted': d.isSubmitted,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -48,12 +49,14 @@ class DeliveryRepo {
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
+        'creditInitial': d.creditInitial, // ✅ add
         'isSubmitted': d.isSubmitted,
       },
       where: 'id = ?',
       whereArgs: [d.id],
     );
   }
+
 
   Future<List<DeliveryRecord>> fetchAll() async {
     final db = await AppDatabase.instance;
