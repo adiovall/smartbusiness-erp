@@ -15,6 +15,8 @@ import '../../features/fuel/repositories/tank_repo.dart';
 import '../../features/fuel/repositories/expense_repo.dart';
 import '../../features/fuel/repositories/day_entry_repo.dart';
 import '../../features/fuel/repositories/settlement_repo.dart';
+import '../../features/fuel/repositories/external_payment_repo.dart';
+import '../services/external_payment_service.dart';
 
 class Services {
   Services._();
@@ -29,6 +31,7 @@ class Services {
   static final expenseRepo = ExpenseRepo();
   static final dayEntryRepo = DayEntryRepo();
   static final settlementRepo = SettlementRepo();
+  static late ExternalPaymentService external;
 
   // =====================
   // SERVICES
@@ -73,5 +76,7 @@ class Services {
     final today = DateTime.now();
     final weekStart = today.subtract(Duration(days: today.weekday - 1));
     await dayEntry.loadWeek(weekStart);
+    final externalRepo = ExternalPaymentRepo();
+    external = ExternalPaymentService(repo: externalRepo);
   }
 }

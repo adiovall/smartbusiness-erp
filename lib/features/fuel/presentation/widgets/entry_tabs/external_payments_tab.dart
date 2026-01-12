@@ -1,43 +1,54 @@
+// lib/features/fuel/presentation/widgets/entry_tabs/external_payments_tab.dart
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-/* ===================== COLORS ===================== */
+import 'package:temp_fuel_app/core/services/service_registry.dart';
+import 'package:temp_fuel_app/core/models/external_payment_record.dart';
 
+/* ===================== COLORS ===================== */
 const panelBg = Color(0xFF0f172a);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
 
-class ExternalPaymentsTab extends StatelessWidget {
+class ExternalPaymentsTab extends StatefulWidget {
   const ExternalPaymentsTab({super.key});
 
-  // 🔹 MOCK DATA (replace later with real source)
-  List<Map<String, dynamic>> get payments => [
-        {
-          'source': 'Bank Transfer',
-          'supplier': 'Onyis Fuel',
-          'fuel': 'Diesel (AGO)',
-          'amount': 250000.0,
-          'date': DateTime.now().subtract(const Duration(days: 1)),
-        },
-        {
-          'source': 'Cash',
-          'supplier': 'Val Oil',
-          'fuel': 'Gas (LPG)',
-          'amount': 120000.0,
-          'date': DateTime.now().subtract(const Duration(days: 2)),
-        },
-        {
-          'source': 'POS',
-          'supplier': 'NNPC Depot',
-          'fuel': 'Petrol (PMS)',
-          'amount': 500000.0,
-          'date': DateTime.now().subtract(const Duration(days: 3)),
-        },
-      ];
+  @override
+  State<ExternalPaymentsTab> createState() => _ExternalPaymentsTabState();
+}
 
-  double get totalExternal =>
-      payments.fold(0, (sum, p) => sum + p['amount']);
+class _ExternalPaymentsTabState extends State<ExternalPaymentsTab> {
+  bool _loading = true;
+  List<ExternalPaymentRecord> _payments = [];
+
+  final money = NumberFormat.currency(locale: 'en_NG', symbol: '₦', decimalDigits: 0);
+
+  double get totalExternal => _payments.fold(0.0, (sum, p) => sum + p.amount);
+
+  int get supplierCount => _payments.map((e) => e.supplier).where((s) => s.trim().isNotEmpty).toSet().length;
+
+  int get sourceCount => _payments.map((e) => e.source).where((s) => s.trim().isNotEmpty).toSet().length;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+
+    // includeDraftDeliveries = true means you will see draft delivery externals too
+    final rows = await Services.external.all(includeDraftDeliveries: true);
+
+    if (!mounted) return;
+    setState(() {
+      _payments = rows;
+      _loading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +70,7 @@ class ExternalPaymentsTab extends StatelessWidget {
                 ),
               ),
               Text(
-                'Total: ₦${NumberFormat('#,###').format(totalExternal)}',
+                'Total: ${money.format(totalExternal)}',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -81,118 +92,97 @@ class ExternalPaymentsTab extends StatelessWidget {
             ),
             child: Row(
               children: [
-                _summaryItem(
-                  'Payments',
-                  payments.length.toString(),
-                  Icons.receipt_long,
-                ),
+                _summaryItem('Payments', _payments.length.toString(), Icons.receipt_long),
                 _divider(),
-                _summaryItem(
-                  'Suppliers',
-                  payments
-                      .map((e) => e['supplier'])
-                      .toSet()
-                      .length
-                      .toString(),
-                  Icons.factory,
-                ),
+                _summaryItem('Suppliers', supplierCount.toString(), Icons.factory),
                 _divider(),
-                _summaryItem(
-                  'Sources',
-                  payments
-                      .map((e) => e['source'])
-                      .toSet()
-                      .length
-                      .toString(),
-                  Icons.account_balance_wallet,
-                ),
+                _summaryItem('Sources', sourceCount.toString(), Icons.account_balance_wallet),
               ],
             ),
           ),
 
           const SizedBox(height: 20),
 
-          /* ===================== PAYMENTS LIST ===================== */
+          /* ===================== LIST ===================== */
           Expanded(
-            child: payments.isEmpty
-                ? Center(
-                    child: Text(
-                      'No external payments recorded.',
-                      style: TextStyle(
-                        color: textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    itemCount: payments.length,
-                    separatorBuilder: (_, __) =>
-                        const SizedBox(height: 10),
-                    itemBuilder: (_, i) {
-                      final p = payments[i];
-                      return Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: panelBorder),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _payments.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No external payments recorded.',
+                          style: TextStyle(color: textSecondary, fontSize: 14),
                         ),
-                        child: Row(
-                          children: [
-                            /* LEFT */
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView.separated(
+                          itemCount: _payments.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (_, i) {
+                            final p = _payments[i];
+
+                            return Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: panelBorder),
+                              ),
+                              child: Row(
                                 children: [
-                                  Text(
-                                    p['supplier'],
-                                    style: const TextStyle(
-                                      color: textPrimary,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          p.supplier.isEmpty ? '(No supplier)' : p.supplier,
+                                          style: const TextStyle(
+                                            color: textPrimary,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '${p.fuelType} • ${p.kind} • ${p.source}${p.isSubmitted == 0 ? " • Draft" : ""}',
+                                          style: const TextStyle(
+                                            color: textSecondary,
+                                            fontSize: 12,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${p['fuel']} • ${p['source']}',
-                                    style: const TextStyle(
-                                      color: textSecondary,
-                                      fontSize: 12,
-                                    ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        money.format(p.amount),
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.green,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        DateFormat('dd MMM yyyy').format(p.date),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: textSecondary,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ),
-
-                            /* RIGHT */
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  '₦${NumberFormat('#,###').format(p['amount'])}',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  DateFormat('dd MMM yyyy')
-                                      .format(p['date']),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
+                      ),
           ),
         ],
       ),

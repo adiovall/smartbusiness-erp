@@ -1,6 +1,4 @@
-// ==============================
 // lib/core/services/delivery_service.dart
-// ==============================
 
 import '../models/delivery_record.dart';
 import 'tank_service.dart';
@@ -29,20 +27,24 @@ class DeliveryService {
       ..addAll(await deliveryRepo.fetchAll());
   }
 
+  /// Remaining credit in DB (submitted only)
   double totalCreditForSupplier(String supplier) {
     return _deliveries
         .where((d) => d.isSubmitted == 1 && d.supplier == supplier && d.credit > 0)
         .fold(0.0, (sum, d) => sum + d.credit);
   }
 
+  /// Consume credit from oldest credit rows first (submitted only)
   Future<void> consumeCredit(String supplier, double amount) async {
     double remaining = amount;
 
-    for (int i = 0; i < _deliveries.length; i++) {
-      final d = _deliveries[i];
-      if (d.isSubmitted != 1) continue;
-      if (d.supplier != supplier || d.credit <= 0) continue;
+    // oldest first (so it behaves like FIFO)
+    final credits = _deliveries
+        .where((d) => d.isSubmitted == 1 && d.supplier == supplier && d.credit > 0)
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
 
+    for (final d in credits) {
       final used = d.credit >= remaining ? remaining : d.credit;
       d.credit -= used;
       remaining -= used;
@@ -57,7 +59,7 @@ class DeliveryService {
     }
   }
 
-  /// ✅ Settlement overpaid → store as supplier credit (SUBMITTED)
+  /// Settlement overpaid → store as supplier credit (SUBMITTED)
   /// This does NOT touch tanks. It only creates a credit row that delivery can consume later.
   Future<void> addCredit({
     required String supplier,
@@ -78,32 +80,27 @@ class DeliveryService {
       salesPaid: 0,
       externalPaid: 0,
       creditUsed: 0,
+      creditInitial: amount, // ✅ store original credit
       source: source,
       isSubmitted: 1,
       debt: 0,
-      credit: amount,
-      creditInitial: amount,
+      credit: amount, // ✅ remaining credit
     );
 
     _deliveries.add(creditRecord);
     await deliveryRepo.insert(creditRecord);
   }
 
-  /// ✅ Create draft delivery (editable/deletable until submit)
-  ///
-  /// IMPORTANT MODEL:
-  /// - amountPaid is the TOTAL SETTLED amount (cash + creditUsed)
-  /// - creditUsed is stored separately for consumeCredit() during submit
   Future<DeliveryRecord> recordDraftDelivery({
     required String supplier,
     required String fuelType,
     required double liters,
     required double totalCost,
-    required double amountPaid,     // ✅ total settled (cash + creditUsed)
+    required double amountPaid,
     required String source,
-    required double salesPaid,      // ✅ cash from Sales only
-    required double externalPaid,   // ✅ cash from External only
-    required double creditUsed,     // ✅ credit used (overpaid)
+    required double salesPaid,
+    required double externalPaid,
+    required double creditUsed,
   }) async {
     if (supplier.trim().isEmpty) throw Exception('Supplier is required');
     if (liters <= 0) throw Exception('Delivered liters must be greater than zero');
@@ -116,11 +113,12 @@ class DeliveryService {
       throw Exception('Delivery exceeds tank capacity. Update tank capacity first.');
     }
 
-    // ✅ tank changes now (draft behavior)
+    // tank changes now (draft behavior)
     tankService.addFuel(fuelType, liters);
 
-    // ✅ DO NOT add creditUsed again — amountPaid already includes it.
-    final diff = amountPaid - totalCost;
+    // effective paid includes creditUsed
+    final effectivePaid = amountPaid + creditUsed;
+    final diff = effectivePaid - totalCost;
 
     final debt = diff < 0 ? diff.abs() : 0.0;
     final credit = diff > 0 ? diff : 0.0;
@@ -136,28 +134,25 @@ class DeliveryService {
       salesPaid: salesPaid,
       externalPaid: externalPaid,
       creditUsed: creditUsed,
+      creditInitial: 0.0, // not a credit row
       source: source,
       isSubmitted: 0,
       debt: debt,
       credit: credit,
-      creditInitial: credit,
     );
 
     _deliveries.add(delivery);
     await deliveryRepo.insert(delivery);
-
     return delivery;
   }
 
-  /// ✅ Edit draft delivery (full edit allowed until submit)
-  /// ALSO FIXES: tank adjustment (your old code validated but didn't update tank levels)
   Future<DeliveryRecord> editDraftDelivery({
     required String id,
     required String supplier,
     required String fuelType,
     required double liters,
     required double totalCost,
-    required double amountPaid,     // ✅ total settled (cash + creditUsed)
+    required double amountPaid,
     required String source,
     required double salesPaid,
     required double externalPaid,
@@ -165,7 +160,9 @@ class DeliveryService {
   }) async {
     final d = _deliveries.firstWhere((e) => e.id == id);
 
-    if (d.isSubmitted == 1) throw Exception('Cannot edit after submit');
+    if (d.isSubmitted == 1) {
+      throw Exception('Cannot edit after submit');
+    }
 
     if (supplier.trim().isEmpty) throw Exception('Supplier is required');
     if (liters <= 0) throw Exception('Liters must be greater than zero');
@@ -173,7 +170,7 @@ class DeliveryService {
     if (amountPaid < 0) throw Exception('Paid cannot be negative');
     if (creditUsed < 0) throw Exception('Credit used cannot be negative');
 
-    // ✅ Capacity checks
+    // Tank adjust checks
     if (d.fuelType == fuelType) {
       final delta = liters - d.liters;
       if (delta > 0) {
@@ -189,22 +186,8 @@ class DeliveryService {
       }
     }
 
-    // ✅ FIX: apply tank adjustments for edit
-    if (d.fuelType == fuelType) {
-      final delta = liters - d.liters;
-      if (delta > 0) {
-        tankService.addFuel(fuelType, delta);
-      } else if (delta < 0) {
-        tankService.removeFuel(fuelType, delta.abs());
-      }
-    } else {
-      // remove old liters from old tank, add new liters to new tank
-      if (d.liters > 0) tankService.removeFuel(d.fuelType, d.liters);
-      tankService.addFuel(fuelType, liters);
-    }
-
-    // ✅ DO NOT add creditUsed again — amountPaid already includes it.
-    final diff = amountPaid - totalCost;
+    final effectivePaid = amountPaid + creditUsed;
+    final diff = effectivePaid - totalCost;
 
     final debt = diff < 0 ? diff.abs() : 0.0;
     final credit = diff > 0 ? diff : 0.0;
@@ -220,11 +203,11 @@ class DeliveryService {
       salesPaid: salesPaid,
       externalPaid: externalPaid,
       creditUsed: creditUsed,
+      creditInitial: d.creditInitial, // keep
       source: source,
       isSubmitted: 0,
       debt: debt,
       credit: credit,
-      creditInitial: credit,
     );
 
     final idx = _deliveries.indexWhere((e) => e.id == id);
@@ -237,7 +220,9 @@ class DeliveryService {
   Future<void> deleteDraftDelivery(String id) async {
     final d = _deliveries.firstWhere((e) => e.id == id);
 
-    if (d.isSubmitted == 1) throw Exception('Cannot delete after submit');
+    if (d.isSubmitted == 1) {
+      throw Exception('Cannot delete after submit');
+    }
 
     // reverse tank addition
     if (d.liters > 0) {
@@ -248,23 +233,20 @@ class DeliveryService {
     await deliveryRepo.deleteById(id);
   }
 
-  /// ✅ FINALIZE: submit drafts
+  /// FINALIZE: submit drafts
   /// - consume overpaid credits used
-  /// - create locked expense for salesPaid (cash from Sales only)
-  /// - create debt records (debt already correct from amountPaid)
+  /// - create locked expense for salesPaid
+  /// - create debt records
   Future<void> submitDraftDeliveries(List<DeliveryRecord> drafts) async {
     if (drafts.isEmpty) return;
 
-    // 1) mark submitted in DB
     await deliveryRepo.markSubmittedByIds(drafts.map((e) => e.id).toList());
 
     for (final d in drafts) {
-      // 2) consume overpaid credit (if used)
       if (d.creditUsed > 0) {
         await consumeCredit(d.supplier, d.creditUsed);
       }
 
-      // 3) locked expense for sales part (cash from Sales only)
       if (d.salesPaid > 0) {
         await expenseService.createLockedExpense(
           amount: d.salesPaid,
@@ -276,7 +258,6 @@ class DeliveryService {
         );
       }
 
-      // 4) create debt record
       if (d.debt > 0) {
         await debtService.createDebt(
           supplier: d.supplier,
@@ -285,7 +266,6 @@ class DeliveryService {
         );
       }
 
-      // 5) mark in memory
       final idx = _deliveries.indexWhere((x) => x.id == d.id);
       if (idx != -1) {
         final old = _deliveries[idx];
@@ -300,6 +280,7 @@ class DeliveryService {
           salesPaid: old.salesPaid,
           externalPaid: old.externalPaid,
           creditUsed: old.creditUsed,
+          creditInitial: old.creditInitial,
           source: old.source,
           isSubmitted: 1,
           debt: old.debt,

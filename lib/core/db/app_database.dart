@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 6, // ✅ bump (was 4)
+        version: 5, // ✅ bump to 5
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -39,7 +39,6 @@ class AppDatabase {
       )
     ''');
 
-    // ✅ deliveries includes split + overpaid tracking
     await db.execute('''
       CREATE TABLE deliveries (
         id TEXT PRIMARY KEY,
@@ -52,10 +51,10 @@ class AppDatabase {
         salesPaid REAL NOT NULL DEFAULT 0,
         externalPaid REAL NOT NULL DEFAULT 0,
         creditUsed REAL NOT NULL DEFAULT 0,
+        creditInitial REAL NOT NULL DEFAULT 0,
         source TEXT,
         debt REAL NOT NULL DEFAULT 0,
         credit REAL NOT NULL DEFAULT 0,
-        creditInitial REAL NOT NULL DEFAULT 0,
         isSubmitted INTEGER NOT NULL DEFAULT 0
       )
     ''');
@@ -120,84 +119,27 @@ class AppDatabase {
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // ✅ Keep migrations idempotent using try/catch
+    // Safe migrations (try/catch so no crash if already exists)
 
-    // ---- Ensure deliveries table exists (for people upgrading from before deliveries existed)
+    // If someone had deliveries without these columns:
+    Future<void> addCol(String sql) async {
+      try {
+        await db.execute(sql);
+      } catch (_) {}
+    }
+
     if (oldVersion < 4) {
-      try {
-        await db.execute('''
-          CREATE TABLE deliveries (
-            id TEXT PRIMARY KEY,
-            date TEXT NOT NULL,
-            supplier TEXT NOT NULL,
-            fuelType TEXT NOT NULL,
-            liters REAL NOT NULL,
-            totalCost REAL NOT NULL,
-            amountPaid REAL NOT NULL DEFAULT 0,
-            salesPaid REAL NOT NULL DEFAULT 0,
-            externalPaid REAL NOT NULL DEFAULT 0,
-            creditUsed REAL NOT NULL DEFAULT 0,
-            source TEXT,
-            debt REAL NOT NULL DEFAULT 0,
-            credit REAL NOT NULL DEFAULT 0,
-            creditInitial REAL NOT NULL DEFAULT 0,
-            isSubmitted INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-      } catch (_) {}
-
-      // In case deliveries existed but was missing isSubmitted
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
-      } catch (_) {}
+      await addCol("ALTER TABLE deliveries ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
     }
 
-    // ---- v5: add creditUsed (your old code had this but version never reached 5)
     if (oldVersion < 5) {
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN creditUsed REAL NOT NULL DEFAULT 0");
-      } catch (_) {}
+      await addCol("ALTER TABLE deliveries ADD COLUMN salesPaid REAL NOT NULL DEFAULT 0");
+      await addCol("ALTER TABLE deliveries ADD COLUMN externalPaid REAL NOT NULL DEFAULT 0");
+      await addCol("ALTER TABLE deliveries ADD COLUMN creditUsed REAL NOT NULL DEFAULT 0");
+      await addCol("ALTER TABLE deliveries ADD COLUMN creditInitial REAL NOT NULL DEFAULT 0");
+      await addCol("ALTER TABLE deliveries ADD COLUMN debt REAL NOT NULL DEFAULT 0");
+      await addCol("ALTER TABLE deliveries ADD COLUMN credit REAL NOT NULL DEFAULT 0");
+      await addCol("ALTER TABLE deliveries ADD COLUMN source TEXT");
     }
-
-    // ---- v6: ensure split fields + creditInitial exist (and the rest for safety)
-    if (oldVersion < 6) {
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN salesPaid REAL NOT NULL DEFAULT 0");
-      } catch (_) {}
-
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN externalPaid REAL NOT NULL DEFAULT 0");
-      } catch (_) {}
-
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN source TEXT");
-      } catch (_) {}
-
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN debt REAL NOT NULL DEFAULT 0");
-      } catch (_) {}
-
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN credit REAL NOT NULL DEFAULT 0");
-      } catch (_) {}
-
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN creditInitial REAL NOT NULL DEFAULT 0");
-      } catch (_) {}
-
-      // ✅ if you want old credit rows to have initial = current credit (best possible truth)
-      try {
-        await db.execute("UPDATE deliveries SET creditInitial = credit WHERE creditInitial = 0 AND credit > 0");
-      } catch (_) {}
-
-      // ✅ also ensure isSubmitted exists (some older tables might miss it)
-      try {
-        await db.execute("ALTER TABLE deliveries ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
-      } catch (_) {}
-    }
-
-    // ---- Optional safety: if your old sales table didn’t have totalAmount
-    // (Only needed if you added totalAmount later)
-    // try { await db.execute("ALTER TABLE sales ADD COLUMN totalAmount REAL NOT NULL DEFAULT 0"); } catch (_) {}
   }
 }

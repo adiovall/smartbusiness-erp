@@ -21,10 +21,10 @@ class DeliveryRepo {
         'salesPaid': d.salesPaid,
         'externalPaid': d.externalPaid,
         'creditUsed': d.creditUsed,
+        'creditInitial': d.creditInitial,
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
-        'creditInitial': d.creditInitial, // ✅ add
         'isSubmitted': d.isSubmitted,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -46,17 +46,16 @@ class DeliveryRepo {
         'salesPaid': d.salesPaid,
         'externalPaid': d.externalPaid,
         'creditUsed': d.creditUsed,
+        'creditInitial': d.creditInitial,
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
-        'creditInitial': d.creditInitial, // ✅ add
         'isSubmitted': d.isSubmitted,
       },
       where: 'id = ?',
       whereArgs: [d.id],
     );
   }
-
 
   Future<List<DeliveryRecord>> fetchAll() async {
     final db = await AppDatabase.instance;
@@ -114,7 +113,6 @@ class DeliveryRepo {
     );
   }
 
-  /// ✅ Supplier memory from BOTH deliveries + settlements
   Future<List<String>> fetchAllSuppliersDistinct({int limit = 500}) async {
     final db = await AppDatabase.instance;
 
@@ -134,4 +132,3 @@ class DeliveryRepo {
     return rows.map((r) => (r['supplier'] as String)).toList();
   }
 }
-

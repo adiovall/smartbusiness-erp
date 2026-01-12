@@ -8,7 +8,6 @@ import 'package:temp_fuel_app/core/services/service_registry.dart';
 import 'package:temp_fuel_app/core/models/debt_record.dart' as coredebt;
 import 'package:temp_fuel_app/core/models/delivery_record.dart' as coredel;
 
-/* ===================== COLORS ===================== */
 const panelBg = Color(0xFF111827);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
@@ -36,7 +35,6 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
   }
 }
 
-/* ===================== OUTSTANDING ITEM (Debt or Credit) ===================== */
 enum OutstandingType { debt, credit }
 
 class OutstandingItem {
@@ -44,7 +42,14 @@ class OutstandingItem {
   final String id;
   final String supplier;
   final String fuelType;
-  final double amount; // debt amount OR remaining credit
+
+  /// For debt: amount
+  /// For credit: remaining
+  final double amount;
+
+  /// For credit only: original
+  final double initial;
+
   final DateTime date;
 
   const OutstandingItem({
@@ -53,11 +58,11 @@ class OutstandingItem {
     required this.supplier,
     required this.fuelType,
     required this.amount,
+    required this.initial,
     required this.date,
   });
 }
 
-/* ===================== WIDGET ===================== */
 class SettlementTab extends StatefulWidget {
   final VoidCallback onSubmitted;
   const SettlementTab({super.key, required this.onSubmitted});
@@ -70,6 +75,8 @@ class _SettlementTabState extends State<SettlementTab> {
   final fuels = const ['PMS', 'AGO', 'DPK', 'Gas'];
   final sources = const ['Sales', 'External', 'Sales+External'];
 
+  final supplierCtrl = TextEditingController();
+
   String supplier = '';
   String fuelType = 'PMS';
   String source = 'Sales';
@@ -77,18 +84,17 @@ class _SettlementTabState extends State<SettlementTab> {
   final salesCtrl = TextEditingController();
   final extCtrl = TextEditingController();
 
-  // selection lock (only one debt selectable until Undo)
   coredebt.DebtRecord? selectedDebt;
 
   // Part B (today delivery history)
   bool _loadingToday = true;
   List<coredel.DeliveryRecord> _todayDeliveries = [];
 
-  // credits list (remaining overpaid credits from DB)
+  // credits list
   bool _loadingCredits = true;
   List<coredel.DeliveryRecord> _credits = [];
 
-  // net sales available (like delivery)
+  // net sales available
   bool _refreshingSales = false;
   double _todayNetSales = 0.0;
 
@@ -112,48 +118,6 @@ class _SettlementTabState extends State<SettlementTab> {
 
   List<coredebt.DebtRecord> get debts => Services.debt.allDebts.where((d) => !d.settled).toList();
 
-  // Build outstanding list: Debts + Credits (remaining)
-  List<OutstandingItem> get outstandingList {
-    final out = <OutstandingItem>[];
-
-    // debts
-    for (final d in debts) {
-      // ASSUMPTION: your DebtRecord has `date` field (common in your codebase)
-      // If it doesn't, change `d.date` to whatever field you store.
-      final DateTime dt = d.createdAt; // or d.date (now supported)
-
-
-      out.add(OutstandingItem(
-        type: OutstandingType.debt,
-        id: d.id,
-        supplier: d.supplier,
-        fuelType: d.fuelType,
-        amount: d.amount,
-        date: dt,
-      ));
-    }
-
-    // credits (remaining overpaid)
-    for (final c in _credits) {
-      if (c.credit <= 0) continue;
-      out.add(OutstandingItem(
-        type: OutstandingType.credit,
-        id: c.id,
-        supplier: c.supplier,
-        fuelType: c.fuelType,
-        amount: c.credit, // remaining credit
-        date: c.date,
-      ));
-    }
-
-    // newest first
-    out.sort((a, b) => b.date.compareTo(a.date));
-    return out;
-  }
-
-  double get totalDebtAmount => debts.fold(0.0, (s, d) => s + d.amount);
-  double get totalCreditRemaining => _credits.fold(0.0, (s, r) => s + (r.credit > 0 ? r.credit : 0.0));
-
   List<coredel.DeliveryRecord> get filteredToday {
     return _todayDeliveries.where((d) {
       final okSupplier = filterSupplier == 'All' || d.supplier == filterSupplier;
@@ -162,6 +126,42 @@ class _SettlementTabState extends State<SettlementTab> {
       return okSupplier && okFuel && okSource;
     }).toList();
   }
+
+  // ✅ outstanding list = debts + remaining credits (newest first)
+  List<OutstandingItem> get outstandingList {
+    final out = <OutstandingItem>[];
+
+    for (final d in debts) {
+      out.add(OutstandingItem(
+        type: OutstandingType.debt,
+        id: d.id,
+        supplier: d.supplier,
+        fuelType: d.fuelType,
+        amount: d.amount,
+        initial: d.amount,
+        date: d.createdAt, // ✅ FIX: your model uses createdAt
+      ));
+    }
+
+    for (final c in _credits) {
+      if (c.credit <= 0) continue;
+      out.add(OutstandingItem(
+        type: OutstandingType.credit,
+        id: c.id,
+        supplier: c.supplier,
+        fuelType: c.fuelType,
+        amount: c.credit, // remaining
+        initial: c.creditInitial > 0 ? c.creditInitial : c.credit,
+        date: c.date,
+      ));
+    }
+
+    out.sort((a, b) => b.date.compareTo(a.date));
+    return out;
+  }
+
+  double get totalDebtAmount => debts.fold(0.0, (s, d) => s + d.amount);
+  double get totalCreditRemaining => _credits.fold(0.0, (s, r) => s + (r.credit > 0 ? r.credit : 0.0));
 
   @override
   void initState() {
@@ -186,7 +186,6 @@ class _SettlementTabState extends State<SettlementTab> {
   }
 
   double _availableSalesMoney() {
-    // settlement uses sales pool directly (already considers drafts because includeDraft true)
     final available = _todayNetSales;
     return available < 0 ? 0.0 : available;
   }
@@ -204,8 +203,6 @@ class _SettlementTabState extends State<SettlementTab> {
   Future<void> _loadCredits() async {
     setState(() => _loadingCredits = true);
 
-    // We use DeliveryRepo.fetchAll then filter submitted credits
-    // Credit rows are created by addCredit() in DeliveryService (liters=0, totalCost=0, credit>0, isSubmitted=1)
     final all = await Services.deliveryRepo.fetchAll();
     final credits = all.where((d) => d.isSubmitted == 1 && d.credit > 0).toList();
 
@@ -216,20 +213,16 @@ class _SettlementTabState extends State<SettlementTab> {
     });
   }
 
-  /* ===================== ACTIONS ===================== */
-
   Future<void> _settle() async {
     if (selectedDebt == null) {
       _toast('Click a debt to settle first');
       return;
     }
-
     if (totalPaid <= 0) {
       _toast('Enter settlement amount');
       return;
     }
 
-    // sales cap check
     final maxSales = _availableSalesMoney();
     if (_usesSalesMoney && salesPaid > maxSales + 0.01) {
       _toast('Sales payment cannot exceed Sales available. Available: ${money.format(maxSales)}');
@@ -237,7 +230,6 @@ class _SettlementTabState extends State<SettlementTab> {
     }
 
     try {
-      // Your settlement service should mark debt settled and create credit if overpaid.
       await Services.settlement.settleSplit(
         supplier: supplier.trim(),
         fuelType: fuelType,
@@ -247,18 +239,14 @@ class _SettlementTabState extends State<SettlementTab> {
       );
 
       widget.onSubmitted();
-
       _undo();
 
-      // refresh lists: debts, credits, sales, deliveries
       await _loadCredits();
       await _refreshNetSales();
       await _loadTodayDeliveries();
 
       if (!mounted) return;
       _toast('Settled successfully', green: true);
-
-      setState(() {});
     } catch (e) {
       _toast('Error: $e');
     }
@@ -268,11 +256,14 @@ class _SettlementTabState extends State<SettlementTab> {
     salesCtrl.clear();
     extCtrl.clear();
     selectedDebt = null;
+
+    supplier = '';
+    supplierCtrl.clear();
+
     setState(() {});
   }
 
   void _selectDebt(coredebt.DebtRecord d) {
-    // lock selection until undo
     if (selectedDebt != null && selectedDebt!.id != d.id) {
       _toast('Press Undo to select another supplier');
       return;
@@ -282,7 +273,8 @@ class _SettlementTabState extends State<SettlementTab> {
     supplier = d.supplier;
     fuelType = d.fuelType;
 
-    // reset inputs
+    supplierCtrl.text = supplier;
+
     salesCtrl.clear();
     extCtrl.clear();
 
@@ -295,8 +287,6 @@ class _SettlementTabState extends State<SettlementTab> {
       SnackBar(content: Text(msg), backgroundColor: green ? Colors.green : Colors.red),
     );
   }
-
-  /* ===================== UI HELPERS ===================== */
 
   InputDecoration _input(String label) => InputDecoration(
         labelText: label,
@@ -350,18 +340,14 @@ class _SettlementTabState extends State<SettlementTab> {
 
   String _fmtDate(DateTime d) => DateFormat('EEE, MMM d').format(d);
 
-  /* ===================== BUILD ===================== */
-
   @override
   Widget build(BuildContext context) {
-    // Part B filter values
     final supplierOptions = <String>{'All', ..._todayDeliveries.map((e) => e.supplier)}.toList()
       ..removeWhere((e) => e.trim().isEmpty);
     final fuelOptions = <String>{'All', ..._todayDeliveries.map((e) => e.fuelType)}.toList();
     final sourceOptions = <String>{'All', ..._todayDeliveries.map((e) => e.source)}.toList();
 
     final filteredLen = filteredToday.length;
-
     final maxSales = _availableSalesMoney();
 
     return Padding(
@@ -369,7 +355,7 @@ class _SettlementTabState extends State<SettlementTab> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          /* ===================== PART A: SETTLEMENT ===================== */
+          // PART A
           Expanded(
             flex: 5,
             child: Column(
@@ -379,19 +365,17 @@ class _SettlementTabState extends State<SettlementTab> {
                     style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
                 const SizedBox(height: 12),
 
-                // top row
                 Row(
                   children: [
                     Expanded(
                       child: SizedBox(
                         height: 48,
                         child: TextField(
-                          controller: TextEditingController(text: supplier)
-                            ..selection = TextSelection.collapsed(offset: supplier.length),
+                          controller: supplierCtrl,
+                          enabled: selectedDebt == null,
                           onChanged: (v) => supplier = v,
                           decoration: _input('Supplier'),
                           style: const TextStyle(color: textPrimary),
-                          enabled: selectedDebt == null, // if debt selected, lock supplier typing
                         ),
                       ),
                     ),
@@ -414,7 +398,6 @@ class _SettlementTabState extends State<SettlementTab> {
 
                 const SizedBox(height: 12),
 
-                // payment row
                 Row(
                   children: [
                     Expanded(
@@ -437,10 +420,12 @@ class _SettlementTabState extends State<SettlementTab> {
 
                 const SizedBox(height: 10),
 
-                // ✅ Sales available (like delivery)
+                // ✅ disappear when External selected
                 if (_usesSalesMoney)
                   Text(
-                    _refreshingSales ? 'Sales available: ...' : 'Sales available: ${money.format(maxSales)}',
+                    _refreshingSales
+                        ? 'Sales available: ...'
+                        : 'Sales available: ${money.format(maxSales)}',
                     style: const TextStyle(color: textSecondary, fontSize: 12),
                   ),
 
@@ -469,7 +454,6 @@ class _SettlementTabState extends State<SettlementTab> {
 
                 const SizedBox(height: 18),
 
-                // summary (NO "Outstanding" chip as you requested)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -500,7 +484,6 @@ class _SettlementTabState extends State<SettlementTab> {
                               separatorBuilder: (_, __) => const SizedBox(height: 10),
                               itemBuilder: (_, i) {
                                 final item = outstandingList[i];
-
                                 final isDebt = item.type == OutstandingType.debt;
                                 final isSelected = isDebt && selectedDebt?.id == item.id;
 
@@ -510,7 +493,7 @@ class _SettlementTabState extends State<SettlementTab> {
                                           final d = debts.firstWhere((x) => x.id == item.id);
                                           _selectDebt(d);
                                         }
-                                      : null, // credits are just view (delivery consumes them)
+                                      : null,
                                   child: Container(
                                     padding: const EdgeInsets.all(14),
                                     decoration: BoxDecoration(
@@ -532,6 +515,7 @@ class _SettlementTabState extends State<SettlementTab> {
                                                   color: textPrimary,
                                                   fontWeight: FontWeight.w600,
                                                 ),
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                             Text(
@@ -551,9 +535,8 @@ class _SettlementTabState extends State<SettlementTab> {
                                             ),
                                           )
                                         else ...[
-                                          // NOTE: original credit is not stored in DB (credit reduces as it is consumed)
                                           Text(
-                                            'OVERPAID ${money.format(item.amount)}',
+                                            'OVERPAID ${money.format(item.initial)}',
                                             style: const TextStyle(
                                               color: Colors.greenAccent,
                                               fontWeight: FontWeight.bold,
@@ -579,7 +562,7 @@ class _SettlementTabState extends State<SettlementTab> {
 
           const SizedBox(width: 18),
 
-          /* ===================== PART B: TODAY DELIVERY HISTORY ===================== */
+          // PART B
           Expanded(
             flex: 6,
             child: Column(
@@ -591,7 +574,6 @@ class _SettlementTabState extends State<SettlementTab> {
                 ),
                 const SizedBox(height: 12),
 
-                // filters row
                 Row(
                   children: [
                     Expanded(
@@ -625,8 +607,6 @@ class _SettlementTabState extends State<SettlementTab> {
 
                 const SizedBox(height: 12),
 
-                // ✅ Removed totals card (as requested)
-
                 Expanded(
                   child: _loadingToday
                       ? const Center(child: CircularProgressIndicator())
@@ -641,28 +621,30 @@ class _SettlementTabState extends State<SettlementTab> {
                                 final r = filteredToday[i];
                                 final sTxt = r.salesPaid > 0 ? money.format(r.salesPaid) : '₦0';
                                 final eTxt = r.externalPaid > 0 ? money.format(r.externalPaid) : '₦0';
-                                final oTxt = r.creditUsed > 0 ? money.format(r.creditUsed) : '₦0';
 
                                 return Card(
                                   color: cardBg,
-                                  margin: const EdgeInsets.symmetric(vertical: 5),
+                                  margin: const EdgeInsets.symmetric(vertical: 6),
                                   child: ListTile(
-                                    title: Text('${r.supplier} • ${r.fuelType} • ${r.source}',
-                                        style: const TextStyle(color: textPrimary)),
+                                    dense: true,
+                                    visualDensity: VisualDensity.compact,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    title: Text(
+                                      '${r.supplier} • ${r.fuelType} • ${r.source}',
+                                      style: const TextStyle(color: textPrimary, fontSize: 13),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                     subtitle: Text(
                                       '${commas.format(r.liters.toInt())}L • Cost ${money.format(r.totalCost)}',
-                                      style: const TextStyle(color: textSecondary),
+                                      style: const TextStyle(color: textSecondary, fontSize: 12),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                     trailing: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.min,
                                       crossAxisAlignment: CrossAxisAlignment.end,
                                       children: [
-                                        Text('S $sTxt',
-                                            style: const TextStyle(color: Colors.orange, fontSize: 12)),
-                                        Text('E $eTxt',
-                                            style: const TextStyle(color: Colors.cyan, fontSize: 12)),
-                                        Text('O $oTxt',
-                                            style: const TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                                        Text('S $sTxt', style: const TextStyle(color: Colors.orange, fontSize: 11)),
+                                        Text('E $eTxt', style: const TextStyle(color: Colors.cyan, fontSize: 11)),
                                       ],
                                     ),
                                   ),
@@ -700,6 +682,7 @@ class _SettlementTabState extends State<SettlementTab> {
 
   @override
   void dispose() {
+    supplierCtrl.dispose();
     salesCtrl.dispose();
     extCtrl.dispose();
     super.dispose();
