@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 5, // ✅ bump to 5
+        version: 9,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -55,6 +55,7 @@ class AppDatabase {
         source TEXT,
         debt REAL NOT NULL DEFAULT 0,
         credit REAL NOT NULL DEFAULT 0,
+        isArchived INTEGER NOT NULL DEFAULT 0,
         isSubmitted INTEGER NOT NULL DEFAULT 0
       )
     ''');
@@ -102,6 +103,8 @@ class AppDatabase {
         source TEXT,
         refId TEXT,
         isLocked INTEGER NOT NULL DEFAULT 0,
+        isSubmitted INTEGER NOT NULL DEFAULT 0,
+        isArchived INTEGER NOT NULL DEFAULT 0,
         date TEXT NOT NULL
       )
     ''');
@@ -119,13 +122,8 @@ class AppDatabase {
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Safe migrations (try/catch so no crash if already exists)
-
-    // If someone had deliveries without these columns:
     Future<void> addCol(String sql) async {
-      try {
-        await db.execute(sql);
-      } catch (_) {}
+      try { await db.execute(sql); } catch (_) {}
     }
 
     if (oldVersion < 4) {
@@ -141,5 +139,18 @@ class AppDatabase {
       await addCol("ALTER TABLE deliveries ADD COLUMN credit REAL NOT NULL DEFAULT 0");
       await addCol("ALTER TABLE deliveries ADD COLUMN source TEXT");
     }
+
+    if (oldVersion < 6) {
+      await addCol("ALTER TABLE expenses ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
+    }
+
+    if (oldVersion < 8) {
+      await addCol("ALTER TABLE expenses ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0");
+    }
+
+    if (oldVersion < 9) {
+    await addCol("ALTER TABLE deliveries ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0");
+  }
+
   }
 }

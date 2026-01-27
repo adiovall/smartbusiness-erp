@@ -175,7 +175,7 @@ class _SettlementTabState extends State<SettlementTab> {
     setState(() => _refreshingSales = true);
 
     final sales = await Services.sale.todayTotalAmount(includeDraft: true);
-    final exp = Services.expense.todayTotal;
+    final exp = Services.expense.todayExpenseTotal;
     final net = sales - exp;
 
     if (!mounted) return;

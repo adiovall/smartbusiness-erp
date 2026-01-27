@@ -9,21 +9,23 @@ class DeliveryRecord {
   final double liters;
   final double totalCost;
 
-  /// cash actually paid now (Sales + External)
+  /// cash actually paid now (Sales + External) — or typed by user
   final double amountPaid;
 
   /// split
   final double salesPaid;
   final double externalPaid;
 
-  /// overpaid/credit used to offset this delivery (from settlement credits)
+  /// credit used to offset this delivery (from supplier credit rows)
   final double creditUsed;
 
-  /// for OVERPAID rows: the original credit amount at creation time
-  /// (so settlement can show "Overpaid" and "Remaining")
+  /// for OVERPAID/credit rows: original credit amount at creation time
   final double creditInitial;
 
   final String source;
+
+  /// 0/1
+  final int isArchived;
 
   /// 0 = draft, 1 = submitted
   final int isSubmitted;
@@ -44,6 +46,7 @@ class DeliveryRecord {
     this.externalPaid = 0.0,
     this.creditUsed = 0.0,
     this.creditInitial = 0.0,
+    this.isArchived = 0,
     this.isSubmitted = 0,
     this.debt = 0.0,
     this.credit = 0.0,
@@ -62,6 +65,7 @@ class DeliveryRecord {
         'creditUsed': creditUsed,
         'creditInitial': creditInitial,
         'source': source,
+        'isArchived': isArchived,
         'isSubmitted': isSubmitted,
         'debt': debt,
         'credit': credit,
@@ -71,8 +75,8 @@ class DeliveryRecord {
     return DeliveryRecord(
       id: json['id'] as String,
       date: DateTime.parse(json['date'] as String),
-      supplier: (json['supplier'] as String),
-      fuelType: (json['fuelType'] as String),
+      supplier: (json['supplier'] as String?) ?? '',
+      fuelType: (json['fuelType'] as String?) ?? '',
       liters: (json['liters'] as num).toDouble(),
       totalCost: (json['totalCost'] as num).toDouble(),
       amountPaid: (json['amountPaid'] as num).toDouble(),
@@ -81,9 +85,47 @@ class DeliveryRecord {
       creditUsed: (json['creditUsed'] as num?)?.toDouble() ?? 0.0,
       creditInitial: (json['creditInitial'] as num?)?.toDouble() ?? 0.0,
       source: (json['source'] as String?) ?? '',
+      isArchived: (json['isArchived'] as int?) ?? 0, // ✅ IMPORTANT
       isSubmitted: (json['isSubmitted'] as int?) ?? 0,
       debt: (json['debt'] as num?)?.toDouble() ?? 0.0,
       credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  DeliveryRecord copyWith({
+    DateTime? date,
+    String? supplier,
+    String? fuelType,
+    double? liters,
+    double? totalCost,
+    double? amountPaid,
+    double? salesPaid,
+    double? externalPaid,
+    double? creditUsed,
+    double? creditInitial,
+    String? source,
+    int? isArchived,
+    int? isSubmitted,
+    double? debt,
+    double? credit,
+  }) {
+    return DeliveryRecord(
+      id: id,
+      date: date ?? this.date,
+      supplier: supplier ?? this.supplier,
+      fuelType: fuelType ?? this.fuelType,
+      liters: liters ?? this.liters,
+      totalCost: totalCost ?? this.totalCost,
+      amountPaid: amountPaid ?? this.amountPaid,
+      salesPaid: salesPaid ?? this.salesPaid,
+      externalPaid: externalPaid ?? this.externalPaid,
+      creditUsed: creditUsed ?? this.creditUsed,
+      creditInitial: creditInitial ?? this.creditInitial,
+      source: source ?? this.source,
+      isArchived: isArchived ?? this.isArchived,
+      isSubmitted: isSubmitted ?? this.isSubmitted,
+      debt: debt ?? this.debt,
+      credit: credit ?? this.credit,
     );
   }
 }

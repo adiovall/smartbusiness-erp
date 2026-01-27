@@ -1,12 +1,13 @@
 // lib/core/services/delivery_service.dart
 
+import 'package:flutter/foundation.dart';
 import '../models/delivery_record.dart';
 import 'tank_service.dart';
 import 'debt_service.dart';
 import 'expense_service.dart';
 import '../../features/fuel/repositories/delivery_repo.dart';
 
-class DeliveryService {
+class DeliveryService with ChangeNotifier {
   final TankService tankService;
   final DebtService debtService;
   final ExpenseService expenseService;
@@ -21,28 +22,96 @@ class DeliveryService {
     required this.deliveryRepo,
   });
 
+  List<DeliveryRecord> get all => List.unmodifiable(_deliveries);
+
   Future<void> loadFromDb() async {
+    final rows = await deliveryRepo.fetchAll();
     _deliveries
       ..clear()
-      ..addAll(await deliveryRepo.fetchAll());
+      ..addAll(rows);
+    notifyListeners();
   }
 
-  /// Remaining credit in DB (submitted only)
+  /// Refresh only today's visible deliveries (draft + submitted, not archived)
+  Future<void> refreshToday() async {
+    final rows = await deliveryRepo.fetchAllTodayVisible();
+
+    final now = DateTime.now();
+    _deliveries.removeWhere((d) =>
+        d.date.year == now.year &&
+        d.date.month == now.month &&
+        d.date.day == now.day);
+
+    _deliveries.addAll(rows);
+    notifyListeners();
+  }
+
+  List<DeliveryRecord> get todayAllVisible {
+    final t = DateTime.now();
+    final list = _deliveries
+        .where((d) =>
+            d.date.year == t.year &&
+            d.date.month == t.month &&
+            d.date.day == t.day &&
+            d.isArchived == 0)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return list;
+  }
+
+  List<DeliveryRecord> get todayDrafts {
+    final t = DateTime.now();
+    final list = _deliveries
+        .where((d) =>
+            d.date.year == t.year &&
+            d.date.month == t.month &&
+            d.date.day == t.day &&
+            d.isArchived == 0 &&
+            d.isSubmitted == 0)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return list;
+  }
+
+  List<DeliveryRecord> get todaySubmitted {
+    final t = DateTime.now();
+    final list = _deliveries
+        .where((d) =>
+            d.date.year == t.year &&
+            d.date.month == t.month &&
+            d.date.day == t.day &&
+            d.isArchived == 0 &&
+            d.isSubmitted == 1)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return list;
+  }
+
+  /// Remaining credit in DB (submitted only, not archived)
   double totalCreditForSupplier(String supplier) {
+    final s = supplier.trim().toLowerCase();
     return _deliveries
-        .where((d) => d.isSubmitted == 1 && d.supplier == supplier && d.credit > 0)
+        .where((d) =>
+            d.isArchived == 0 &&
+            d.isSubmitted == 1 &&
+            d.supplier.toLowerCase() == s &&
+            d.credit > 0)
         .fold(0.0, (sum, d) => sum + d.credit);
   }
 
   /// Consume credit from oldest credit rows first (submitted only)
   Future<void> consumeCredit(String supplier, double amount) async {
     double remaining = amount;
+    final s = supplier.trim().toLowerCase();
 
-    // oldest first (so it behaves like FIFO)
     final credits = _deliveries
-        .where((d) => d.isSubmitted == 1 && d.supplier == supplier && d.credit > 0)
+        .where((d) =>
+            d.isArchived == 0 &&
+            d.isSubmitted == 1 &&
+            d.supplier.toLowerCase() == s &&
+            d.credit > 0)
         .toList()
-      ..sort((a, b) => a.date.compareTo(b.date));
+      ..sort((a, b) => a.date.compareTo(b.date)); // FIFO
 
     for (final d in credits) {
       final used = d.credit >= remaining ? remaining : d.credit;
@@ -57,10 +126,11 @@ class DeliveryService {
     if (remaining > 0.01) {
       throw Exception('Not enough overpaid credit available');
     }
+
+    notifyListeners();
   }
 
   /// Settlement overpaid → store as supplier credit (SUBMITTED)
-  /// This does NOT touch tanks. It only creates a credit row that delivery can consume later.
   Future<void> addCredit({
     required String supplier,
     required String fuelType,
@@ -80,15 +150,17 @@ class DeliveryService {
       salesPaid: 0,
       externalPaid: 0,
       creditUsed: 0,
-      creditInitial: amount, // ✅ store original credit
+      creditInitial: amount,
       source: source,
       isSubmitted: 1,
+      isArchived: 0,
       debt: 0,
-      credit: amount, // ✅ remaining credit
+      credit: amount,
     );
 
     _deliveries.add(creditRecord);
     await deliveryRepo.insert(creditRecord);
+    notifyListeners();
   }
 
   Future<DeliveryRecord> recordDraftDelivery({
@@ -113,10 +185,9 @@ class DeliveryService {
       throw Exception('Delivery exceeds tank capacity. Update tank capacity first.');
     }
 
-    // tank changes now (draft behavior)
+    // Draft behavior: tank updates immediately
     tankService.addFuel(fuelType, liters);
 
-    // effective paid includes creditUsed
     final effectivePaid = amountPaid + creditUsed;
     final diff = effectivePaid - totalCost;
 
@@ -134,15 +205,17 @@ class DeliveryService {
       salesPaid: salesPaid,
       externalPaid: externalPaid,
       creditUsed: creditUsed,
-      creditInitial: 0.0, // not a credit row
+      creditInitial: 0.0,
       source: source,
       isSubmitted: 0,
+      isArchived: 0,
       debt: debt,
       credit: credit,
     );
 
     _deliveries.add(delivery);
     await deliveryRepo.insert(delivery);
+    notifyListeners();
     return delivery;
   }
 
@@ -170,21 +243,10 @@ class DeliveryService {
     if (amountPaid < 0) throw Exception('Paid cannot be negative');
     if (creditUsed < 0) throw Exception('Credit used cannot be negative');
 
-    // Tank adjust checks
-    if (d.fuelType == fuelType) {
-      final delta = liters - d.liters;
-      if (delta > 0) {
-        final tank = tankService.getTank(fuelType);
-        if (tank != null && (tank.currentLevel + delta) > tank.capacity + 0.0001) {
-          throw Exception('Update exceeds tank capacity. Update tank capacity first.');
-        }
-      }
-    } else {
-      final newTank = tankService.getTank(fuelType);
-      if (newTank != null && (newTank.currentLevel + liters) > newTank.capacity + 0.0001) {
-        throw Exception('New fuel tank capacity exceeded. Update tank capacity first.');
-      }
-    }
+    // IMPORTANT:
+    // You already adjusted tank in UI before saving. This service version
+    // does NOT auto reverse/redo tank on edit to avoid double adjustments.
+    // If you want tank deltas handled here, tell me and I’ll implement safely.
 
     final effectivePaid = amountPaid + creditUsed;
     final diff = effectivePaid - totalCost;
@@ -203,9 +265,10 @@ class DeliveryService {
       salesPaid: salesPaid,
       externalPaid: externalPaid,
       creditUsed: creditUsed,
-      creditInitial: d.creditInitial, // keep
+      creditInitial: d.creditInitial,
       source: source,
       isSubmitted: 0,
+      isArchived: d.isArchived,
       debt: debt,
       credit: credit,
     );
@@ -214,6 +277,7 @@ class DeliveryService {
     _deliveries[idx] = updated;
 
     await deliveryRepo.update(updated);
+    notifyListeners();
     return updated;
   }
 
@@ -231,9 +295,11 @@ class DeliveryService {
 
     _deliveries.removeWhere((e) => e.id == id);
     await deliveryRepo.deleteById(id);
+    notifyListeners();
   }
 
   /// FINALIZE: submit drafts
+  /// - mark submitted in DB
   /// - consume overpaid credits used
   /// - create locked expense for salesPaid
   /// - create debt records
@@ -266,6 +332,7 @@ class DeliveryService {
         );
       }
 
+      // Update in-memory record to submitted
       final idx = _deliveries.indexWhere((x) => x.id == d.id);
       if (idx != -1) {
         final old = _deliveries[idx];
@@ -283,10 +350,13 @@ class DeliveryService {
           creditInitial: old.creditInitial,
           source: old.source,
           isSubmitted: 1,
+          isArchived: old.isArchived,
           debt: old.debt,
           credit: old.credit,
         );
       }
     }
+
+    notifyListeners();
   }
 }

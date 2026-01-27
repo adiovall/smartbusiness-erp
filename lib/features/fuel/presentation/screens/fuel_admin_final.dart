@@ -57,7 +57,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
       // Load today's totals
       final salesTotal = await Services.saleRepo.getTodayTotalAmount();
-      final expenseTotal = Services.expense.todayTotal;
+      final expenseTotal = Services.expense.todayExpenseTotal;
 
       await _loadWeeklyFromDayEntryCache();
 

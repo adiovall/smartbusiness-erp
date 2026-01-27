@@ -25,6 +25,7 @@ class DeliveryRepo {
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
+        'isArchived': d.isArchived,
         'isSubmitted': d.isSubmitted,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -50,11 +51,17 @@ class DeliveryRepo {
         'source': d.source,
         'debt': d.debt,
         'credit': d.credit,
+        'isArchived': d.isArchived,
         'isSubmitted': d.isSubmitted,
       },
       where: 'id = ?',
       whereArgs: [d.id],
     );
+  }
+
+  Future<void> deleteById(String id) async {
+    final db = await AppDatabase.instance;
+    await db.delete('deliveries', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<List<DeliveryRecord>> fetchAll() async {
@@ -63,6 +70,7 @@ class DeliveryRepo {
     return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
   }
 
+  // ✅ drafts only (what UI list should show)
   Future<List<DeliveryRecord>> fetchTodayDraft() async {
     final db = await AppDatabase.instance;
 
@@ -72,7 +80,7 @@ class DeliveryRepo {
 
     final rows = await db.query(
       'deliveries',
-      where: 'date BETWEEN ? AND ? AND isSubmitted = 0',
+      where: 'date BETWEEN ? AND ? AND isSubmitted = 0 AND isArchived = 0',
       whereArgs: [start, end],
       orderBy: 'date DESC',
     );
@@ -80,6 +88,7 @@ class DeliveryRepo {
     return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
   }
 
+  // ✅ submitted today (not archived)
   Future<List<DeliveryRecord>> fetchTodaySubmitted() async {
     final db = await AppDatabase.instance;
 
@@ -89,7 +98,7 @@ class DeliveryRepo {
 
     final rows = await db.query(
       'deliveries',
-      where: 'date BETWEEN ? AND ? AND isSubmitted = 1',
+      where: 'date BETWEEN ? AND ? AND isSubmitted = 1 AND isArchived = 0',
       whereArgs: [start, end],
       orderBy: 'date DESC',
     );
@@ -97,9 +106,22 @@ class DeliveryRepo {
     return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
   }
 
-  Future<void> deleteById(String id) async {
+  // ✅ all today visible (draft + submitted), not archived — use for totals
+  Future<List<DeliveryRecord>> fetchAllTodayVisible() async {
     final db = await AppDatabase.instance;
-    await db.delete('deliveries', where: 'id = ?', whereArgs: [id]);
+
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).toIso8601String();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+
+    final rows = await db.query(
+      'deliveries',
+      where: 'date BETWEEN ? AND ? AND isArchived = 0',
+      whereArgs: [start, end],
+      orderBy: 'date DESC',
+    );
+
+    return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
   }
 
   Future<void> markSubmittedByIds(List<String> ids) async {
@@ -110,6 +132,22 @@ class DeliveryRepo {
     await db.rawUpdate(
       'UPDATE deliveries SET isSubmitted = 1 WHERE id IN ($placeholders)',
       ids,
+    );
+  }
+
+  // ✅ archive submitted today after Send Data succeeds
+  Future<void> archiveSubmittedToday() async {
+    final db = await AppDatabase.instance;
+
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).toIso8601String();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+
+    await db.update(
+      'deliveries',
+      {'isArchived': 1},
+      where: 'date BETWEEN ? AND ? AND isSubmitted = 1 AND isArchived = 0',
+      whereArgs: [start, end],
     );
   }
 

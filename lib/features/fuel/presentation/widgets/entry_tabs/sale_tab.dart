@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+
 
 import 'package:temp_fuel_app/core/models/sale_record.dart'; // ✅ FIX
 import 'package:temp_fuel_app/core/services/service_registry.dart';
@@ -49,9 +51,28 @@ class PumpSale {
   double get amount => liters * unitPrice;
 }
 
+  class ThousandsSeparatorInputFormatter extends TextInputFormatter {
+    ThousandsSeparatorInputFormatter({String locale = 'en_NG'})
+        : _format = NumberFormat.decimalPattern(locale);
+    final NumberFormat _format;
+
+    @override
+    TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+      final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+      if (digits.isEmpty) return const TextEditingValue(text: '');
+      final formatted = _format.format(int.parse(digits));
+      return TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
+    }
+  }
+
+
+
 class _SaleTabState extends State<SaleTab> {
   final pumps = List.generate(12, (i) => 'Pump ${i + 1}');
-  final fuels = ['Petrol (PMS)', 'Diesel (AGO)', 'Kerosene (HHK)', 'Gas (LPG)'];
+  final fuels = ['Petrol (PMS)', 'Diesel (AGO)', 'Kerosene (DPK)', 'Gas (LPG)'];
 
   String pump = 'Pump 1';
   String fuel = 'Petrol (PMS)';
@@ -142,7 +163,7 @@ class _SaleTabState extends State<SaleTab> {
         editingIndex = null;
       } else {
         recorded.add(sale);
-        widget.onDraftMarked();
+        
       }
     });
 
@@ -201,6 +222,7 @@ class _SaleTabState extends State<SaleTab> {
       await _applyTankConsumption();
       await _persistSalesToDb();
       widget.onSaleRecorded(totalSold);
+      widget.onDraftMarked();
       _undoAll();
       shortageCommentCtrl.clear();
       return;
@@ -272,14 +294,17 @@ class _SaleTabState extends State<SaleTab> {
         category: 'Sales Shortage',
         comment: shortageCommentCtrl.text.trim(),
         isLocked: true,
+        isSubmitted: false, // ✅ make it final
         source: 'Sales',
       );
+
     }
 
     await _applyTankConsumption();
     await _persistSalesToDb();
 
     widget.onSaleRecorded(totalSold);
+    widget.onDraftMarked();
     _undoAll();
     shortageCommentCtrl.clear();
   }
@@ -308,16 +333,24 @@ class _SaleTabState extends State<SaleTab> {
     );
   }
 
-  Widget _numberField(String label, TextEditingController ctrl, {String? suffix}) {
+    Widget _numberField(
+    String label,
+    TextEditingController ctrl, {
+    String? suffix,
+    bool useThousands = false,
+  }) {
     return TextField(
       controller: ctrl,
       keyboardType: TextInputType.number,
-      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      inputFormatters: useThousands
+          ? [ThousandsSeparatorInputFormatter()]
+          : [FilteringTextInputFormatter.digitsOnly],
       decoration: _input(label, suffix: suffix),
       style: const TextStyle(color: textPrimary),
       onChanged: (_) => setState(() {}),
     );
   }
+
 
   Widget _readonlyField({
     required String label,
@@ -512,9 +545,9 @@ class _SaleTabState extends State<SaleTab> {
                           style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(height: 12),
-                        _numberField('Cash', cashCtrl, suffix: '₦'),
+                        _numberField('Cash', cashCtrl, suffix: '₦', useThousands: true),
                         const SizedBox(height: 10),
-                        _numberField('POS', posCtrl, suffix: '₦'),
+                        _numberField('POS', posCtrl, suffix: '₦', useThousands: true),
                         const SizedBox(height: 20),
                         _readonlyField(
                           label: 'Money at Hand',

@@ -35,7 +35,11 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
 }
 
 class DeliveryTab extends StatefulWidget {
+  /// Refresh UI after SUBMIT only (weekly summary / parent refresh)
   final VoidCallback onSubmitted;
+
+  /// Called ONLY on submit to update today's delivery card.
+  /// Parent should ADD this batch to today's total.
   final Function(double amount) onDeliveryRecorded;
 
   const DeliveryTab({
@@ -56,13 +60,13 @@ class _DeliveryTabState extends State<DeliveryTab> {
   String source = 'External';
 
   final supplierCtrl = TextEditingController(); // logic controller
-  TextEditingController? _supplierAutoCtrl;     // ✅ actual UI controller from Autocomplete
+  TextEditingController? _supplierAutoCtrl; // UI controller from Autocomplete
 
   final litersCtrl = TextEditingController();
   final costCtrl = TextEditingController();
 
-  final paidCtrl = TextEditingController();     // single mode
-  final salesCtrl = TextEditingController();    // split mode
+  final paidCtrl = TextEditingController(); // single mode
+  final salesCtrl = TextEditingController(); // split mode
   final externalCtrl = TextEditingController(); // split mode
 
   bool useOverpaid = false;
@@ -96,7 +100,9 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
   bool get showSplit => source == 'External+Sales';
 
-  double _num(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '')) ?? 0.0;
+  double _num(TextEditingController c) =>
+      double.tryParse(c.text.trim().replaceAll(',', '')) ?? 0.0;
+
   String _fmtInt(double v) => NumberFormat.decimalPattern('en_NG').format(v.round());
 
   double get salesPaid =>
@@ -122,45 +128,10 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
   bool get _usesSalesMoney => (source == 'Sales' || source == 'External+Sales');
 
-  Future<void> _refreshNetSales() async {
-    setState(() => _refreshingNet = true);
-
-    // committed + draft
-    final sales = await Services.sale.todayTotalAmount(includeDraft: true);
-    final exp = Services.expense.todayTotal;
-    final net = sales - exp;
-
-    if (!mounted) return;
-    setState(() {
-      _todayNetSales = net < 0 ? 0.0 : net;
-      _refreshingNet = false;
-    });
-  }
-
-  double _availableSalesMoney({String? editingId, double oldSalesPaid = 0.0}) {
-    final alreadyUsedInDrafts = _drafts.fold(0.0, (s, d) => s + d.salesPaid);
-    final available = _todayNetSales - alreadyUsedInDrafts + (editingId != null ? oldSalesPaid : 0.0);
-    return available < 0 ? 0.0 : available;
-  }
-
-  // ✅ reserve credit used by drafts so available reduces immediately
-  double _draftCreditUsedForSupplier(String supplier, {String? excludeId}) {
-    return _drafts
-        .where((d) => d.supplier.toLowerCase() == supplier.toLowerCase())
-        .where((d) => excludeId == null || d.id != excludeId)
-        .fold(0.0, (s, d) => s + d.creditUsed);
-  }
-
-  double _availableSupplierCredit(String supplier) {
-    final base = Services.delivery.totalCreditForSupplier(supplier);
-    final reserved = _draftCreditUsedForSupplier(supplier, excludeId: editingId);
-    final available = base - reserved + (editingId != null ? _editingOldCreditUsed : 0.0);
-    return available < 0 ? 0.0 : available;
-  }
-
   @override
   void initState() {
     super.initState();
+
     _loadDraftToday();
     _loadSupplierSuggestions();
     _refreshNetSales();
@@ -179,14 +150,18 @@ class _DeliveryTabState extends State<DeliveryTab> {
     _refreshNetSales();
   }
 
+  /// ✅ ALWAYS refresh service + take drafts from service
   Future<void> _loadDraftToday() async {
     setState(() => _loading = true);
-    final rows = await Services.deliveryRepo.fetchTodayDraft();
+
+    await Services.delivery.refreshToday();
+
     if (!mounted) return;
     setState(() {
-      _drafts = rows;
+      _drafts = Services.delivery.todayDrafts;
       _loading = false;
     });
+
     _refreshOverpaidForSupplier();
   }
 
@@ -212,6 +187,47 @@ class _DeliveryTabState extends State<DeliveryTab> {
     });
   }
 
+  Future<void> _refreshNetSales() async {
+    setState(() => _refreshingNet = true);
+
+    // committed + draft (as you designed)
+    final sales = await Services.sale.todayTotalAmount(includeDraft: true);
+
+    // expense total from service (draft + submitted today)
+    final exp = Services.expense.todayExpenseTotal;
+
+    final net = sales - exp;
+
+    if (!mounted) return;
+    setState(() {
+      _todayNetSales = net < 0 ? 0.0 : net;
+      _refreshingNet = false;
+    });
+  }
+
+  double _availableSalesMoney({String? editingId, double oldSalesPaid = 0.0}) {
+    final alreadyUsedInDrafts = _drafts.fold(0.0, (s, d) => s + d.salesPaid);
+    final available =
+        _todayNetSales - alreadyUsedInDrafts + (editingId != null ? oldSalesPaid : 0.0);
+    return available < 0 ? 0.0 : available;
+  }
+
+  // reserve credit used by drafts so available reduces immediately
+  double _draftCreditUsedForSupplier(String supplier, {String? excludeId}) {
+    final s = supplier.toLowerCase();
+    return _drafts
+        .where((d) => d.supplier.toLowerCase() == s)
+        .where((d) => excludeId == null || d.id != excludeId)
+        .fold(0.0, (sum, d) => sum + d.creditUsed);
+  }
+
+  double _availableSupplierCredit(String supplier) {
+    final base = Services.delivery.totalCreditForSupplier(supplier);
+    final reserved = _draftCreditUsedForSupplier(supplier, excludeId: editingId);
+    final available = base - reserved + (editingId != null ? _editingOldCreditUsed : 0.0);
+    return available < 0 ? 0.0 : available;
+  }
+
   void _toast(String msg, {bool green = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -228,7 +244,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
   }
 
   void _clearInputsOnly() {
-    // ✅ clear supplier in BOTH controllers
     _setSupplierText('');
 
     litersCtrl.clear();
@@ -237,12 +252,10 @@ class _DeliveryTabState extends State<DeliveryTab> {
     salesCtrl.clear();
     externalCtrl.clear();
 
-    // ✅ clear toggle + previews
     useOverpaid = false;
     supplierOverpaidAvailable = 0.0;
     creditUsedPreview = 0.0;
 
-    // reset baselines
     _basePaidSingle = 0.0;
     _basePaidSales = 0.0;
     _basePaidExternal = 0.0;
@@ -298,7 +311,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
   }
 
   void _restoreBasePayments() {
-    // If user changed source while ON, safest: clear payments
     if (_baseSource != source) {
       paidCtrl.clear();
       salesCtrl.clear();
@@ -349,7 +361,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
   }
 
   // ============================
-  // STRICT TANK CAPACITY CHECK
+  // TANK CAPACITY CHECK
   // ============================
   bool _passesTankCapacityCheck({
     required String newFuelType,
@@ -432,7 +444,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
       supplierOverpaidAvailable = _availableSupplierCredit(r.supplier);
 
-      // baseline for toggle OFF restore
       _captureBasePayments();
     });
 
@@ -460,7 +471,14 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
     try {
       await Services.delivery.deleteDraftDelivery(r.id);
-      setState(() => _drafts.removeWhere((x) => x.id == r.id));
+
+      // ✅ refresh + take drafts from service (no local guessing)
+      await Services.delivery.refreshToday();
+
+      if (!mounted) return;
+      setState(() {
+        _drafts = Services.delivery.todayDrafts;
+      });
 
       if (editingId == r.id) _clearInputsOnly();
 
@@ -484,11 +502,9 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
     if (!_passesTankCapacityCheck(newFuelType: selectedFuel, newLiters: liters)) return;
 
-    // enforce strict plan before validations
     if (useOverpaid) _applyOverpaidFirstAndRebalance();
 
-    final maxSales =
-        _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
+    final maxSales = _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
 
     if (_usesSalesMoney && salesPaid > maxSales + 0.01) {
       _toast('Sales payment cannot exceed Sales available. Available: ${money.format(maxSales)}');
@@ -499,10 +515,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
     final usedCredit = useOverpaid ? min(maxCredit, cost) : 0.0;
 
     try {
-      core.DeliveryRecord saved;
-
       if (editingId == null) {
-        saved = await Services.delivery.recordDraftDelivery(
+        await Services.delivery.recordDraftDelivery(
           supplier: supplier,
           fuelType: selectedFuel,
           liters: liters,
@@ -513,12 +527,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
           externalPaid: externalPaid,
           creditUsed: usedCredit,
         );
-
-        setState(() => _drafts.insert(0, saved));
-        widget.onDeliveryRecorded(cost);
-        _toast('Recorded (Draft). Editable until Submit.', green: true);
       } else {
-        saved = await Services.delivery.editDraftDelivery(
+        await Services.delivery.editDraftDelivery(
           id: editingId!,
           supplier: supplier,
           fuelType: selectedFuel,
@@ -530,14 +540,15 @@ class _DeliveryTabState extends State<DeliveryTab> {
           externalPaid: externalPaid,
           creditUsed: usedCredit,
         );
-
-        setState(() {
-          final idx = _drafts.indexWhere((x) => x.id == saved.id);
-          if (idx != -1) _drafts[idx] = saved;
-        });
-
-        _toast('Updated.', green: true);
       }
+
+      // ✅ refresh + take drafts from service
+      await Services.delivery.refreshToday();
+
+      if (!mounted) return;
+      setState(() {
+        _drafts = Services.delivery.todayDrafts;
+      });
 
       if (!supplierSuggestions.any((s) => s.toLowerCase() == supplier.toLowerCase())) {
         setState(() {
@@ -546,11 +557,13 @@ class _DeliveryTabState extends State<DeliveryTab> {
         });
       }
 
-      // ✅ IMPORTANT: clear all inputs + toggle for new input
+      _toast(editingId == null ? 'Recorded (Draft). Editable until Submit.' : 'Updated.', green: true);
+
+      // IMPORTANT: do NOT mark weekly summary on draft save
       _clearInputsOnly();
-      widget.onSubmitted();
 
       _refreshNetSales();
+      _refreshOverpaidForSupplier();
     } catch (e) {
       _toast('Error: $e');
     }
@@ -558,6 +571,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
   Future<void> _submitDeliveries() async {
     if (_drafts.isEmpty) return;
+
+    final batchTotalCost = _drafts.fold<double>(0.0, (s, r) => s + r.totalCost);
 
     try {
       await Services.delivery.submitDraftDeliveries(_drafts);
@@ -568,12 +583,23 @@ class _DeliveryTabState extends State<DeliveryTab> {
         submittedAt: DateTime.now(),
       );
 
-      setState(() => _drafts.clear());
+      widget.onDeliveryRecorded(batchTotalCost);
+
+      // ✅ refresh service + rebuild drafts from service
+      await Services.delivery.refreshToday();
+
+      if (!mounted) return;
+      setState(() {
+        _drafts = Services.delivery.todayDrafts; // should now be empty
+      });
+
       _clearInputsOnly();
+
       widget.onSubmitted();
 
       _toast('Delivery Submitted. Drafts locked.', green: true);
       _refreshNetSales();
+      _refreshOverpaidForSupplier();
     } catch (e) {
       _toast('Error: $e');
     }
@@ -605,10 +631,18 @@ class _DeliveryTabState extends State<DeliveryTab> {
       for (final id in ids) {
         await Services.delivery.deleteDraftDelivery(id);
       }
-      setState(() => _drafts.clear());
+
+      await Services.delivery.refreshToday();
+
+      if (!mounted) return;
+      setState(() {
+        _drafts = Services.delivery.todayDrafts;
+      });
+
       _clearInputsOnly();
       _toast('Drafts cleared.', green: true);
       _refreshNetSales();
+      _refreshOverpaidForSupplier();
     } catch (e) {
       _toast('Error: $e');
     }
@@ -655,15 +689,18 @@ class _DeliveryTabState extends State<DeliveryTab> {
       items: items
           .map((e) => DropdownMenuItem(
                 value: e,
-                child: Text(e, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: textPrimary)),
+                child: Text(
+                  e,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: textPrimary),
+                ),
               ))
           .toList(),
       onChanged: f,
     );
   }
 
-  // ✅ supplier autocomplete (with safe clear + edit restore)
   Widget _supplierAutocomplete(String label) {
     return Autocomplete<String>(
       optionsBuilder: (TextEditingValue value) {
@@ -694,8 +731,11 @@ class _DeliveryTabState extends State<DeliveryTab> {
             suffixIcon: _loadingSuppliers
                 ? const Padding(
                     padding: EdgeInsets.all(12),
-                    child: SizedBox(width: 14, height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2)),
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   )
                 : const Icon(Icons.search, color: Colors.white54),
           ),
@@ -749,19 +789,20 @@ class _DeliveryTabState extends State<DeliveryTab> {
               children: [
                 Text(
                   editingId == null ? 'Delivery Entry' : 'Delivery Entry (Editing)',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 10),
-
                 _supplierAutocomplete('Supplier'),
                 const SizedBox(height: 8),
-
                 _drop('Fuel Type', selectedFuel, fuels, (v) {
                   setState(() => selectedFuel = v!);
                   if (useOverpaid) _applyOverpaidFirstAndRebalance();
                 }),
                 const SizedBox(height: 8),
-
                 Row(
                   children: [
                     Expanded(child: _numField('Liters', litersCtrl)),
@@ -769,12 +810,16 @@ class _DeliveryTabState extends State<DeliveryTab> {
                     Expanded(child: _numField('Total Cost (₦)', costCtrl)),
                   ],
                 ),
-
                 const SizedBox(height: 14),
-                const Text('Payment',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: textPrimary)),
+                const Text(
+                  'Payment',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: textPrimary,
+                  ),
+                ),
                 const SizedBox(height: 8),
-
                 Row(
                   children: [
                     Expanded(
@@ -782,8 +827,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
                       child: _drop('Source', source, sources, (v) {
                         setState(() {
                           source = v!;
-
-                          // stop carry-over: clear payment fields + baseline
                           paidCtrl.clear();
                           salesCtrl.clear();
                           externalCtrl.clear();
@@ -807,14 +850,11 @@ class _DeliveryTabState extends State<DeliveryTab> {
                     ),
                   ],
                 ),
-
                 if (source == 'External+Sales') ...[
                   const SizedBox(height: 8),
                   _numField('External Amount (₦)', externalCtrl),
                 ],
-
                 const SizedBox(height: 10),
-
                 if (_usesSalesMoney)
                   Text(
                     _refreshingNet
@@ -822,7 +862,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
                         : 'Sales available: ${money.format(maxSales)}',
                     style: const TextStyle(color: textSecondary, fontSize: 12),
                   ),
-
                 if (supplierOverpaidAvailable > 0) ...[
                   const SizedBox(height: 10),
                   Row(
@@ -855,15 +894,12 @@ class _DeliveryTabState extends State<DeliveryTab> {
                     ],
                   ),
                 ],
-
                 if (useOverpaid && creditUsedPreview > 0)
                   Text(
                     'Using overpaid: ${money.format(creditUsedPreview)}',
                     style: const TextStyle(color: Colors.greenAccent, fontSize: 12),
                   ),
-
                 const SizedBox(height: 18),
-
                 Align(
                   alignment: Alignment.center,
                   child: SizedBox(
@@ -890,20 +926,27 @@ class _DeliveryTabState extends State<DeliveryTab> {
               children: [
                 Text(
                   "Today's Draft Deliveries (${_drafts.length})",
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 12),
-
                 _summaryRow('Total Liters', '${commas.format(totalLiters.toInt())} L'),
                 _summaryRow('Total Cost', money.format(totalCost)),
                 _summaryRow('Total Paid', money.format(totalPaid), color: Colors.green),
-                _summaryRow('Total Debt', money.format(totalDebt),
-                    color: totalDebt > 0 ? Colors.redAccent : Colors.green),
-                _summaryRow('Total Overpaid', money.format(totalOverpaid),
-                    color: totalOverpaid > 0 ? Colors.greenAccent : Colors.white70),
-
+                _summaryRow(
+                  'Total Debt',
+                  money.format(totalDebt),
+                  color: totalDebt > 0 ? Colors.redAccent : Colors.green,
+                ),
+                _summaryRow(
+                  'Total Overpaid',
+                  money.format(totalOverpaid),
+                  color: totalOverpaid > 0 ? Colors.greenAccent : Colors.white70,
+                ),
                 const SizedBox(height: 14),
-
                 Expanded(
                   child: _loading
                       ? const Center(child: CircularProgressIndicator())
@@ -983,9 +1026,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
                               },
                             ),
                 ),
-
                 const SizedBox(height: 12),
-
                 Row(
                   children: [
                     Expanded(
