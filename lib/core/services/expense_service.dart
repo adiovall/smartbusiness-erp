@@ -2,6 +2,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'service_registry.dart';
+import 'package:intl/intl.dart';
 import '../models/expense_record.dart';
 import '../../features/fuel/repositories/expense_repo.dart';
 
@@ -168,14 +169,12 @@ class ExpenseService with ChangeNotifier {
   }
 
   Future<int> submitTodayExpenses() async {
-  final drafts = await repo.fetchTodayDrafts(); // ✅ drafts only
+    final drafts = await repo.fetchTodayDrafts(); // only drafts
 
-    final n = DateTime.now();
-    final todayKey = '${n.year.toString().padLeft(4, '0')}-'
-        '${n.month.toString().padLeft(2, '0')}-'
-        '${n.day.toString().padLeft(2, '0')}';
+    final today = DateTime.now();
+    final todayKey = DateFormat('yyyy-MM-dd').format(today);
 
-    // Always tick weekly summary on submit attempt (even if 0)
+    // Mark submission for weekly dot
     await Services.dayEntry.submitSection(
       businessDate: todayKey,
       section: 'Exp',
@@ -187,10 +186,14 @@ class ExpenseService with ChangeNotifier {
       return 0;
     }
 
-    // ✅ mark only drafts as submitted
+    // Mark drafts submitted
     await repo.markSubmittedByIds(drafts.map((e) => e.id).toList());
 
+    // CLEAR them from visible list (delete drafts)
+    await repo.deleteDraftsToday();
+
     await refreshToday();
+
     return drafts.length;
   }
 

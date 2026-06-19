@@ -13,6 +13,7 @@ import '../widgets/weekly_summary_perfect.dart';
 
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/day_entry.dart' as de;
+import '../../../../core/services/day_entry_service.dart' show DaySentAlreadyException;
 
 class FuelAdminFinal extends StatefulWidget {
   const FuelAdminFinal({super.key});
@@ -32,6 +33,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   double todaysDelivery = 0.0;
 
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus = {};
+  final Map<String, bool> daySentStatus = {};
 
   bool _loading = true;
 
@@ -51,6 +53,8 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
     // listen to tank updates (for tank widget)
     Services.tank.addListener(_onTankChanged);
+
+    _initializeData(); 
 
     Future.microtask(() async {
       await Services.init();
@@ -99,6 +103,8 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   Future<void> _loadWeeklyFromDayEntryCache() async {
     final start = _weekStart(_now);
     weeklyStatus.clear();
+    daySentStatus.clear();
+    
 
     for (int i = 0; i < 7; i++) {
       final day = start.add(Duration(days: i));
@@ -113,8 +119,28 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
         'Exp': entry?.expense ?? de.DayEntryStatus.none,
         'Set': entry?.settlement ?? de.DayEntryStatus.none,
       };
+
+      daySentStatus[uiKey] = entry?.submittedAt != null;
     }
   }
+
+
+  Future<void> _initializeData() async {
+  await Services.init();
+
+  await Services.dayEntry.getOrCreate(_businessDateKey(_now));
+
+  todaysSales = await Services.sale.todayTotalAmount(includeDraft: false);
+  todaysExpense = Services.expense.todayExpenseTotal;
+  todaysDelivery = await Services.delivery.todayTotalAmount(); // ← use full total
+
+  await _loadWeeklyFromDayEntryCache();
+
+  if (!mounted) return;
+  setState(() {
+    _loading = false;
+  });
+}
 
   // =====================
   // MARK TAB AS DRAFT
@@ -122,7 +148,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
   Future<void> _markDraft(String type) async {
     final date = _businessDateKey(_now);
-    await Services.dayEntry.markDraft(date, type);
+    await Services.dayEntry.markSubmitted(date, type);
     await _loadWeeklyFromDayEntryCache();
     if (mounted) setState(() {});
   }
@@ -132,34 +158,75 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   // =====================
 
   Future<void> _confirmSendData() async {
-    final todayUiKey = _uiDayKey(_now);
-    final statuses = weeklyStatus[todayUiKey];
+    final unsent = await Services.dayEntry.fetchUnsentDates();
 
-    if (statuses == null) return;
-
-    final hasDraft = statuses.values.any((s) => s == de.DayEntryStatus.draft);
-
-    if (!hasDraft) {
+    if (unsent.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nothing to send today')),
+        const SnackBar(content: Text('Nothing to send')),
       );
       return;
     }
 
+    final picked = await showDialog<de.DayEntry>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF020617),
+        title: const Text('Select Business Date', style: TextStyle(color: Colors.white)),
+        content: SizedBox(
+          width: 360,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: unsent.length,
+            separatorBuilder: (_, __) => const Divider(color: Color(0xFF1f2937)),
+            itemBuilder: (_, i) {
+              final entry = unsent[i];
+              return ListTile(
+                title: Text(entry.date, style: const TextStyle(color: Colors.white)),
+                subtitle: Text(
+                  _sectionsSummary(entry),
+                  style: const TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+                onTap: () => Navigator.pop(context, entry),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ],
+      ),
+    );
+
+    if (picked == null) return;
+
+    await _showSendConfirmDialog(picked);
+  }
+
+  String _sectionsSummary(de.DayEntry entry) {
+    final parts = <String>[];
+    if (entry.sale == de.DayEntryStatus.submitted) parts.add('Sale');
+    if (entry.delivery == de.DayEntryStatus.submitted) parts.add('Delivery');
+    if (entry.expense == de.DayEntryStatus.submitted) parts.add('Expense');
+    if (entry.settlement == de.DayEntryStatus.submitted) parts.add('Settlement');
+    return parts.isEmpty ? 'No sections submitted' : parts.join(' • ');
+  }
+
+  Future<void> _showSendConfirmDialog(de.DayEntry entry) async {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF020617),
-        title: const Text('Send Today’s Data?', style: TextStyle(color: Colors.white)),
+        title: const Text('Send This Data?', style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _row('Sales', statuses['Sale'] ?? de.DayEntryStatus.none),
-            _row('Delivery', statuses['Del'] ?? de.DayEntryStatus.none),
-            _row('Expense', statuses['Exp'] ?? de.DayEntryStatus.none),
-            _row('Settlement', statuses['Set'] ?? de.DayEntryStatus.none),
+            _row('Sales', entry.sale),
+            _row('Delivery', entry.delivery),
+            _row('Expense', entry.expense),
+            _row('Settlement', entry.settlement),
             const SizedBox(height: 12),
-            Text('Business Date: $todayUiKey', style: const TextStyle(color: Colors.grey)),
+            Text('Business Date: ${entry.date}', style: const TextStyle(color: Colors.grey)),
           ],
         ),
         actions: [
@@ -174,7 +241,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
 
     if (proceed == true) {
-      await _sendData();
+      await _sendData(entry.date);
     }
   }
 
@@ -200,21 +267,30 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
-  Future<void> _sendData() async {
-    final date = _businessDateKey(_now);
-
-    await Services.dayEntry.submitDay(
-      businessDate: date,
-      submittedAt: DateTime.now(),
-    );
+  Future<void> _sendData(String businessDate) async {
+    try {
+      await Services.dayEntry.submitDay(
+        businessDate: businessDate,
+        submittedAt: DateTime.now(),
+      );
+    } on DaySentAlreadyException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This business date has already been sent.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     await _loadWeeklyFromDayEntryCache();
 
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Data successfully sent'),
+      SnackBar(
+        content: Text('Data for $businessDate successfully sent'),
         backgroundColor: Colors.green,
       ),
     );
@@ -225,10 +301,8 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   void _addDelivery(double v) => setState(() => todaysDelivery += v);
 
   bool get isTodaySubmitted {
-    final todayUiKey = _uiDayKey(_now);
-    final m = weeklyStatus[todayUiKey];
-    if (m == null) return false;
-    return m.values.every((s) => s == de.DayEntryStatus.submitted);
+    final todayDbKey = _businessDateKey(_now);
+    return Services.dayEntry.isDayAlreadySent(todayDbKey);
   }
 
   @override
@@ -298,7 +372,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
         );
 
         final sendBtn = ElevatedButton.icon(
-          onPressed: isTodaySubmitted ? null : _confirmSendData,
+          onPressed: _confirmSendData,
           icon: const Icon(Icons.send, size: 18),
           label: const Text('Send Data'),
         );
@@ -452,14 +526,34 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                       },
                       onDraftMarked: () => _markDraft('Sale'),
                     ),
-                    DeliveryTab(
-                      onSubmitted: () => _markDraft('Del'),
+                    DeliveryTab(                         // ← currently here, index 2
+                      onSubmitted: () async {
+                        await Services.dayEntry.markSubmitted(_businessDateKey(_now), 'Del');
+                        await _initializeData();
+                        await _loadWeeklyFromDayEntryCache();
+                        if (mounted) setState(() {});
+                      },
                       onDeliveryRecorded: (amount) {
-                        setState(() => todaysDelivery = amount);
+                        setState(() => todaysDelivery += amount);
                       },
                     ),
-                    ExpenseTab(onSubmitted: () => _markDraft('Exp')),
-                    SettlementTab(onSubmitted: () => _markDraft('Set')),
+
+                    ExpenseTab(  
+                      onSubmitted: () async {
+                        await Services.dayEntry.markSubmitted(_businessDateKey(_now), 'Exp');
+                        await _initializeData();
+                        await _loadWeeklyFromDayEntryCache();
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    SettlementTab(
+                      onSubmitted: () async {
+                        await Services.dayEntry.markSubmitted(_businessDateKey(_now), 'Set');
+                        await _initializeData();
+                        await _loadWeeklyFromDayEntryCache();
+                        if (mounted) setState(() {});
+                      },
+                    ),
                     const ExternalPaymentsTab(),
                   ],
                 ),
@@ -472,9 +566,12 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
         // MIDDLE: WEEKLY SUMMARY
         Expanded(
-          flex: 1,
-          child: WeeklySummaryPerfect(weeklyStatus: weeklyStatus),
-        ),
+            flex: 1,
+            child: WeeklySummaryPerfect(
+              weeklyStatus: weeklyStatus,
+              daySentStatus: daySentStatus,
+            ),
+          ),
 
         const SizedBox(width: 16),
 

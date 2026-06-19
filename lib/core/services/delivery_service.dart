@@ -1,6 +1,8 @@
 // lib/core/services/delivery_service.dart
 
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart'; 
+
 import '../models/delivery_record.dart';
 import 'tank_service.dart';
 import 'debt_service.dart';
@@ -218,6 +220,19 @@ class DeliveryService with ChangeNotifier {
     notifyListeners();
     return delivery;
   }
+
+  Future<double> todayTotalAmount() async {
+  final now = DateTime.now();
+  final todayKey = DateFormat('yyyy-MM-dd').format(now);
+
+  // Sum ALL today's deliveries (drafts + submitted, not archived)
+  final allToday = await deliveryRepo.fetchAllTodayVisible();
+  double total = allToday.fold(0.0, (sum, r) => sum + r.totalCost);
+
+  print("Delivery total reloaded: $total"); // debug
+
+  return total;
+}
 
   Future<DeliveryRecord> editDraftDelivery({
     required String id,

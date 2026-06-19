@@ -1,7 +1,6 @@
 // lib/features/fuel/presentation/widgets/weekly_summary_perfect.dart
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../../../core/models/day_entry.dart' as de;
 
 /* ===================== COLORS ===================== */
@@ -11,20 +10,25 @@ const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
 
 class WeeklySummaryPerfect extends StatelessWidget {
-  // Change from List<DayEntry> to your map structure
+  // Per-section status (Sale/Del/Exp/Set) for each day label, e.g. "Mon 15"
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus;
+
+  // NEW: whether each day has been fully "Sent" via the global Send Data button.
+  // Key = same day label as weeklyStatus (e.g. "Mon 15").
+  // true  -> entire row renders GREEN, permanently.
+  // false -> fall back to per-section status (submitted -> YELLOW, none -> grey).
+  final Map<String, bool> daySentStatus;
 
   const WeeklySummaryPerfect({
     super.key,
     required this.weeklyStatus,
+    required this.daySentStatus,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Sort days: Mon → Sun (assuming keys are like "Mon 15")
     final sortedKeys = weeklyStatus.keys.toList()
       ..sort((a, b) {
-        // Extract day name for sorting
         final dayA = a.split(' ').first;
         final dayB = b.split(' ').first;
         const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -54,7 +58,10 @@ class WeeklySummaryPerfect extends StatelessWidget {
             columnWidths: const {0: FixedColumnWidth(54)},
             children: [
               _headerRow(),
-              ...sortedKeys.map((key) => _dayRow(key, weeklyStatus[key]!)),
+              ...sortedKeys.map((key) {
+                final isSent = daySentStatus[key] ?? false;
+                return _dayRow(key, weeklyStatus[key]!, isSent);
+              }),
             ],
           ),
         ],
@@ -82,7 +89,11 @@ class WeeklySummaryPerfect extends StatelessWidget {
     );
   }
 
-  TableRow _dayRow(String dayLabel, Map<String, de.DayEntryStatus> statuses) {
+  TableRow _dayRow(
+    String dayLabel,
+    Map<String, de.DayEntryStatus> statuses,
+    bool isSent,
+  ) {
     return TableRow(
       children: [
         Padding(
@@ -92,30 +103,33 @@ class WeeklySummaryPerfect extends StatelessWidget {
             style: const TextStyle(fontSize: 9, color: textSecondary),
           ),
         ),
-        _cell(statuses['Sale'] ?? de.DayEntryStatus.none),
-        _cell(statuses['Del'] ?? de.DayEntryStatus.none),
-        _cell(statuses['Exp'] ?? de.DayEntryStatus.none),
-        _cell(statuses['Set'] ?? de.DayEntryStatus.none),
+        _cell(statuses['Sale'] ?? de.DayEntryStatus.none, isSent),
+        _cell(statuses['Del'] ?? de.DayEntryStatus.none, isSent),
+        _cell(statuses['Exp'] ?? de.DayEntryStatus.none, isSent),
+        _cell(statuses['Set'] ?? de.DayEntryStatus.none, isSent),
       ],
     );
   }
 
-  Widget _cell(de.DayEntryStatus status) {
+  Widget _cell(de.DayEntryStatus status, bool isSent) {
     Color color;
     IconData icon;
 
-    switch (status) {
-      case de.DayEntryStatus.submitted:
-        color = Colors.green;
-        icon = Icons.check_circle;
-        break;
-      case de.DayEntryStatus.draft:
-        color = Colors.amber;
-        icon = Icons.check_circle;
-        break;
-      default:
-        color = const Color(0xFF475569);
-        icon = Icons.circle_outlined;
+    if (isSent) {
+      // Day has been globally sent via "Send Data" -> permanent green,
+      // regardless of individual section status.
+      color = Colors.green;
+      icon = Icons.check_circle;
+    } else if (status == de.DayEntryStatus.submitted) {
+      // Section submitted locally but day not yet sent -> yellow.
+      color = Colors.amber;
+      icon = Icons.check_circle;
+    } else if (status == de.DayEntryStatus.draft) {
+      color = Colors.amber;
+      icon = Icons.check_circle;
+    } else {
+      color = const Color(0xFF475569);
+      icon = Icons.circle_outlined;
     }
 
     return Center(

@@ -153,6 +153,17 @@ class _ExpenseTabState extends State<ExpenseTab> {
       return;
     }
 
+    // Check BEFORE saving
+    final currentSales = await Services.sale.todayTotalAmount(includeDraft: false);
+    final currentExpenses = Services.expense.todayExpenseTotal;
+    if (currentExpenses + amount > currentSales) {
+      _toast(
+        'Expenses cannot exceed sales! Available: ${money.format(currentSales - currentExpenses)}',
+      );
+      return; // ← STOP HERE — do NOT save
+    }
+
+    // Only save if validation passes
     try {
       if (_editing == null) {
         await Services.expense.createDraftExpense(
@@ -189,6 +200,9 @@ class _ExpenseTabState extends State<ExpenseTab> {
     setState(() {});
   }
 
+
+
+
   Future<void> _deleteExpense(ExpenseRecord e) async {
     if (e.isLocked || e.isSubmitted) return;
 
@@ -214,18 +228,19 @@ class _ExpenseTabState extends State<ExpenseTab> {
 
   Future<void> _submitExpenses() async {
     try {
+      // Mark all today's expenses as submitted (or just clear list view)
       final count = await Services.expense.submitTodayExpenses();
 
-      if (count == 0) {
-        _toast('No expenses to submit.');
-        return;
-      }
+      // Clear local view (hide everything in Expense tab)
+      await Services.expense.clearTodayDrafts();  // or delete all visible
 
+      // Refresh
       await Services.expense.refreshToday();
-      _resetForm();
-      widget.onSubmitted();  // call to mark weekly summary
 
-      _toast('Submitted $count expense(s). List cleared.', green: true);
+      _resetForm();
+      widget.onSubmitted();  // parent reloads top card
+
+      _toast('Submitted $count expense(s).', green: true);
     } catch (e) {
       _toast('Error: $e');
     }
@@ -234,7 +249,7 @@ class _ExpenseTabState extends State<ExpenseTab> {
   @override
   Widget build(BuildContext context) {
     final drafts = Services.expense.todayDrafts; // use this for the list
-    final allExpenses = drafts; // the list should only show drafts
+   final allExpenses = Services.expense.allTodayExpenses;  // ← change this line
 
     final total = Services.expense.todayExpenseTotal;
 
@@ -333,7 +348,7 @@ class _ExpenseTabState extends State<ExpenseTab> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "Today's Expenses (${drafts.length})",
+                "Expenses Count (${allExpenses.length})",
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: textPrimary),
               ),
               Text(
@@ -355,7 +370,7 @@ class _ExpenseTabState extends State<ExpenseTab> {
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (_, i) {
                       final e = allExpenses[i];
-                      final isEditable = !e.isLocked && !e.isSubmitted;
+                      final isEditable = e.source == 'Manual' && !e.isLocked && !e.isSubmitted;
 
                       return Container(
                         padding: const EdgeInsets.all(14),
@@ -390,14 +405,7 @@ class _ExpenseTabState extends State<ExpenseTab> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
-                                  if (e.isSubmitted && !e.isLocked)
-                                    const Padding(
-                                      padding: EdgeInsets.only(top: 4),
-                                      child: Text(
-                                        'Submitted',
-                                        style: TextStyle(color: Colors.greenAccent, fontSize: 12),
-                                      ),
-                                    ),
+                                  
                                 ],
                               ),
                             ),
@@ -416,7 +424,8 @@ class _ExpenseTabState extends State<ExpenseTab> {
                                 onPressed: () => _deleteExpense(e),
                                 icon: const Icon(Icons.delete, color: Colors.redAccent),
                               ),
-                            ],
+                            ] else
+                              Icon(Icons.lock, color: Colors.grey, size: 20),
                           ],
                         ),
                       );
@@ -444,7 +453,7 @@ class _ExpenseTabState extends State<ExpenseTab> {
                 child: ElevatedButton.icon(
                   onPressed: allExpenses.isEmpty ? null : _submitExpenses,// Always ON
                   label: Text(
-                    allExpenses.isEmpty ? 'Submit (0)' : 'Submit (${drafts.length})',
+                    allExpenses.isEmpty ? 'Submit (0)' : 'Submit (${allExpenses.length})',
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: drafts.isEmpty ? Colors.grey : Colors.green,
