@@ -224,6 +224,17 @@ class ExpenseService with ChangeNotifier {
       ..sort((a, b) => b.date.compareTo(a.date));
   }
 
+  /// NEW: moves all expenses tagged with oldDate to newDate.
+  Future<void> moveBusinessDate(String oldDate, String newDate) async {
+    await repo.updateBusinessDate(oldDate, newDate);
+
+    for (final e in _expenses) {
+      // ExpenseRecord fields are all final, so rebuild in place via index.
+    }
+    // Simplest correct approach: just reload from DB after the move.
+    await refreshToday();
+  }
+
 
   // All today's expenses (drafts + submitted, non-archived)
   List<ExpenseRecord> get allTodayExpenses {

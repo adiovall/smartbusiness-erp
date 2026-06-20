@@ -3,6 +3,7 @@
 class SaleRecord {
   final String id;
   final DateTime date;
+  final String businessDate;
   final String pumpNo;
   final String fuelType;
   final double liters;
@@ -12,11 +13,17 @@ class SaleRecord {
   SaleRecord({
     required this.id,
     required this.date,
+    String? businessDate,
     required this.pumpNo,
     required this.fuelType,
     required this.liters,
     required this.unitPrice,
-  }) : totalAmount = liters * unitPrice;
+  }) : totalAmount = liters * unitPrice,
+        businessDate = businessDate ?? _dateKey(date);   // ← NEW
+
+  static String _dateKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
 
   /// Convert to JSON for database storage
   Map<String, dynamic> toJson() => {

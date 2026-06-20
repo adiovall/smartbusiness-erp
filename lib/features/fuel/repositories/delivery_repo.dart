@@ -5,7 +5,7 @@ import '../../../core/db/app_database.dart';
 import '../../../core/models/delivery_record.dart';
 
 class DeliveryRepo {
-  Future<void> insert(DeliveryRecord d) async {
+    Future<void> insert(DeliveryRecord d) async {
     final db = await AppDatabase.instance;
 
     await db.insert(
@@ -13,6 +13,7 @@ class DeliveryRepo {
       {
         'id': d.id,
         'date': d.date.toIso8601String(),
+        'businessDate': d.businessDate,
         'supplier': d.supplier,
         'fuelType': d.fuelType,
         'liters': d.liters,
@@ -39,6 +40,7 @@ class DeliveryRepo {
       'deliveries',
       {
         'date': d.date.toIso8601String(),
+        'businessDate': d.businessDate, 
         'supplier': d.supplier,
         'fuelType': d.fuelType,
         'liters': d.liters,
@@ -56,6 +58,16 @@ class DeliveryRepo {
       },
       where: 'id = ?',
       whereArgs: [d.id],
+    );
+  }
+
+  Future<void> updateBusinessDate(String oldDate, String newDate) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'deliveries',
+      {'businessDate': newDate},
+      where: 'businessDate = ?',
+      whereArgs: [oldDate],
     );
   }
 

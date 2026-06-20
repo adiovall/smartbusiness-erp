@@ -3,6 +3,7 @@
 class DeliveryRecord {
   final String id;
   final DateTime date;
+  final String businessDate;
   final String supplier;
   final String fuelType;
 
@@ -36,6 +37,7 @@ class DeliveryRecord {
   DeliveryRecord({
     required this.id,
     required this.date,
+    String? businessDate,
     required this.supplier,
     required this.fuelType,
     required this.liters,
@@ -50,11 +52,15 @@ class DeliveryRecord {
     this.isSubmitted = 0,
     this.debt = 0.0,
     this.credit = 0.0,
-  });
+  }) : businessDate = businessDate ?? _dateKey(date);
+
+  static String _dateKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'date': date.toIso8601String(),
+        'businessDate': businessDate,
         'supplier': supplier,
         'fuelType': fuelType,
         'liters': liters,
@@ -72,9 +78,11 @@ class DeliveryRecord {
       };
 
   factory DeliveryRecord.fromJson(Map<String, dynamic> json) {
+    final d = DateTime.parse(json['date'] as String);
     return DeliveryRecord(
       id: json['id'] as String,
-      date: DateTime.parse(json['date'] as String),
+      date: d,
+      businessDate: (json['businessDate'] as String?) ?? _dateKey(d),
       supplier: (json['supplier'] as String?) ?? '',
       fuelType: (json['fuelType'] as String?) ?? '',
       liters: (json['liters'] as num).toDouble(),
@@ -94,6 +102,7 @@ class DeliveryRecord {
 
   DeliveryRecord copyWith({
     DateTime? date,
+    String? businessDate,
     String? supplier,
     String? fuelType,
     double? liters,
@@ -112,6 +121,7 @@ class DeliveryRecord {
     return DeliveryRecord(
       id: id,
       date: date ?? this.date,
+      businessDate: businessDate ?? this.businessDate,
       supplier: supplier ?? this.supplier,
       fuelType: fuelType ?? this.fuelType,
       liters: liters ?? this.liters,

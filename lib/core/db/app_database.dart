@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 9,
+        version: 10,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -31,6 +31,7 @@ class AppDatabase {
       CREATE TABLE sales (
         id TEXT PRIMARY KEY,
         date TEXT NOT NULL,
+        businessDate TEXT NOT NULL DEFAULT '',
         pumpNo TEXT NOT NULL,
         fuelType TEXT NOT NULL,
         liters REAL NOT NULL,
@@ -43,6 +44,7 @@ class AppDatabase {
       CREATE TABLE deliveries (
         id TEXT PRIMARY KEY,
         date TEXT NOT NULL,
+        businessDate TEXT NOT NULL DEFAULT '',
         supplier TEXT NOT NULL,
         fuelType TEXT NOT NULL,
         liters REAL NOT NULL,
@@ -67,6 +69,7 @@ class AppDatabase {
         fuelType TEXT NOT NULL,
         amount REAL NOT NULL,
         createdAt TEXT NOT NULL,
+        businessDate TEXT NOT NULL DEFAULT '',
         settled INTEGER NOT NULL DEFAULT 0
       )
     ''');
@@ -82,7 +85,8 @@ class AppDatabase {
         remainingDebt REAL NOT NULL DEFAULT 0,
         credit REAL NOT NULL DEFAULT 0,
         source TEXT,
-        date TEXT NOT NULL
+        date TEXT NOT NULL,
+        businessDate TEXT NOT NULL DEFAULT ''
       )
     ''');
 
@@ -105,7 +109,8 @@ class AppDatabase {
         isLocked INTEGER NOT NULL DEFAULT 0,
         isSubmitted INTEGER NOT NULL DEFAULT 0,
         isArchived INTEGER NOT NULL DEFAULT 0,
-        date TEXT NOT NULL
+        date TEXT NOT NULL,
+        businessDate TEXT NOT NULL DEFAULT ''
       )
     ''');
 
@@ -149,8 +154,31 @@ class AppDatabase {
     }
 
     if (oldVersion < 9) {
-    await addCol("ALTER TABLE deliveries ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0");
-  }
+      await addCol("ALTER TABLE deliveries ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0");
+    }
 
+    if (oldVersion < 10) {
+      await addCol("ALTER TABLE sales ADD COLUMN businessDate TEXT");
+      await addCol("ALTER TABLE deliveries ADD COLUMN businessDate TEXT");
+      await addCol("ALTER TABLE debts ADD COLUMN businessDate TEXT");
+      await addCol("ALTER TABLE settlements ADD COLUMN businessDate TEXT");
+      await addCol("ALTER TABLE expenses ADD COLUMN businessDate TEXT");
+
+      await db.execute(
+        "UPDATE sales SET businessDate = substr(date, 1, 10) WHERE businessDate IS NULL OR businessDate = ''"
+      );
+      await db.execute(
+        "UPDATE deliveries SET businessDate = substr(date, 1, 10) WHERE businessDate IS NULL OR businessDate = ''"
+      );
+      await db.execute(
+        "UPDATE debts SET businessDate = substr(createdAt, 1, 10) WHERE businessDate IS NULL OR businessDate = ''"
+      );
+      await db.execute(
+        "UPDATE settlements SET businessDate = substr(date, 1, 10) WHERE businessDate IS NULL OR businessDate = ''"
+      );
+      await db.execute(
+        "UPDATE expenses SET businessDate = substr(date, 1, 10) WHERE businessDate IS NULL OR businessDate = ''"
+      );
+    }
   }
 }

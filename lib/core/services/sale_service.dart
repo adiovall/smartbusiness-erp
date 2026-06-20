@@ -72,6 +72,11 @@ class SaleService {
     return committed + draftTotalAmount;
   }
 
+  /// NEW: moves all sales tagged with oldBusinessDate to newBusinessDate.
+  Future<void> moveBusinessDate(String oldDate, String newDate) async {
+    await saleRepo.updateBusinessDate(oldDate, newDate);
+  }
+
   SaleMismatch? checkMismatch({
     required double cashReceived,
     required double posReceived,

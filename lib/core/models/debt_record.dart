@@ -6,10 +6,9 @@ class DebtRecord {
   final String fuelType;
   double amount;
 
-  /// stored in DB as 'createdAt' TEXT
   final DateTime createdAt;
+  String businessDate;   // ← NEW, mutable so it can be corrected on send
 
-  /// stored in DB as INTEGER 0/1
   bool settled;
 
   DebtRecord({
@@ -18,10 +17,13 @@ class DebtRecord {
     required this.fuelType,
     required this.amount,
     required this.createdAt,
+    String? businessDate,       // ← NEW
     this.settled = false,
-  });
+  }) : businessDate = businessDate ?? _dateKey(createdAt);
 
-  /// ✅ Backward-compatible alias (your UI expects d.date)
+  static String _dateKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
   DateTime get date => createdAt;
 
   void applyPayment(double payment) {
@@ -38,16 +40,19 @@ class DebtRecord {
         'fuelType': fuelType,
         'amount': amount,
         'createdAt': createdAt.toIso8601String(),
-        'settled': settled ? 1 : 0, // ✅ int for DB
+        'businessDate': businessDate,   // ← NEW
+        'settled': settled ? 1 : 0,
       };
 
   factory DebtRecord.fromJson(Map<String, dynamic> json) {
+    final c = DateTime.parse(json['createdAt'] as String);
     return DebtRecord(
       id: json['id'] as String,
       supplier: (json['supplier'] as String?) ?? '',
       fuelType: (json['fuelType'] as String?) ?? '',
       amount: (json['amount'] as num).toDouble(),
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      createdAt: c,
+      businessDate: (json['businessDate'] as String?) ?? _dateKey(c),  // ← NEW
       settled: ((json['settled'] as int?) ?? 0) == 1,
     );
   }

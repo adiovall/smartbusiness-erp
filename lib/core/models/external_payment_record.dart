@@ -3,6 +3,7 @@
 class ExternalPaymentRecord {
   final String id;
   final DateTime date;
+  final String businessDate;   // ← NEW
   final String supplier;
   final String fuelType;
 
@@ -21,6 +22,7 @@ class ExternalPaymentRecord {
   ExternalPaymentRecord({
     required this.id,
     required this.date,
+    required this.businessDate,   // ← NEW
     required this.supplier,
     required this.fuelType,
     required this.amount,

@@ -39,13 +39,11 @@ class Services {
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
 
-  // ✅ SALE SERVICE (THIS IS WHAT YOU WERE MISSING)
   static final sale = SaleService(
     tankService: tank,
     saleRepo: saleRepo,
   );
 
-  // ✅ create expense BEFORE delivery (delivery depends on it)
   static final expense = ExpenseService(expenseRepo);
 
   static final delivery = DeliveryService(
@@ -62,7 +60,15 @@ class Services {
     expenseService: expense,
   );
 
-  static final dayEntry = DayEntryService(dayEntryRepo);
+  // ✅ dayEntry now needs all 5 services for correctBusinessDate()
+  static final dayEntry = DayEntryService(
+    repo: dayEntryRepo,
+    saleService: sale,
+    deliveryService: delivery,
+    debtService: debt,
+    expenseService: expense,
+    settlementService: settlement,
+  );
 
   // =====================
   // INIT (APP START)

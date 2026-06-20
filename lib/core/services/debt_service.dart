@@ -107,4 +107,13 @@ class DebtService {
         .where((d) => d.supplier == supplier && !d.settled)
         .fold(0.0, (sum, d) => sum + d.amount);
   }
+
+  /// NEW: needed for the Send-Data business-date correction flow.
+  /// Moves all debts currently tagged with [oldBusinessDate] to [newBusinessDate].
+  Future<void> moveBusinessDate(String oldBusinessDate, String newBusinessDate) async {
+    for (final debt in _debts.where((d) => d.businessDate == oldBusinessDate)) {
+      debt.businessDate = newBusinessDate;
+    }
+    await repo.updateBusinessDate(oldBusinessDate, newBusinessDate);
+  }
 }

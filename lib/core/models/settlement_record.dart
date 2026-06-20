@@ -7,7 +7,6 @@ class SettlementRecord {
 
   final double paidAmount;
 
-  // ✅ split tracking
   final double salesPaid;
   final double externalPaid;
 
@@ -15,6 +14,7 @@ class SettlementRecord {
   final double credit;
   final String source;
   final DateTime date;
+  final String businessDate;   // ← NEW
 
   SettlementRecord({
     required this.id,
@@ -27,7 +27,11 @@ class SettlementRecord {
     required this.credit,
     required this.source,
     required this.date,
-  });
+    String? businessDate,       // ← NEW
+  }) : businessDate = businessDate ?? _dateKey(date);
+
+  static String _dateKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -40,9 +44,11 @@ class SettlementRecord {
         'credit': credit,
         'source': source,
         'date': date.toIso8601String(),
+        'businessDate': businessDate,   // ← NEW
       };
 
   factory SettlementRecord.fromJson(Map<String, dynamic> json) {
+    final d = DateTime.parse(json['date'] as String);
     return SettlementRecord(
       id: json['id'] as String,
       supplier: json['supplier'] as String,
@@ -53,7 +59,8 @@ class SettlementRecord {
       remainingDebt: (json['remainingDebt'] as num?)?.toDouble() ?? 0.0,
       credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
       source: (json['source'] as String?) ?? '',
-      date: DateTime.parse(json['date'] as String),
+      date: d,
+      businessDate: (json['businessDate'] as String?) ?? _dateKey(d),  // ← NEW
     );
   }
 }

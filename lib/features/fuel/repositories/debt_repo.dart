@@ -16,6 +16,7 @@ class DebtRepo {
         'fuelType': d.fuelType,
         'amount': d.amount,
         'createdAt': d.createdAt.toIso8601String(),
+        'businessDate': d.businessDate,
         'settled': d.settled ? 1 : 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -29,6 +30,7 @@ class DebtRepo {
       'debts',
       {
         'amount': d.amount,
+        'businessDate': d.businessDate,
         'settled': d.settled ? 1 : 0,
       },
       where: 'id = ?',
@@ -36,10 +38,22 @@ class DebtRepo {
     );
   }
 
+    /// NEW: needed for the Send-Data business-date correction flow.
+    /// Updates only the businessDate for ALL debts that currently belong
+    /// to [oldBusinessDate], moving them to [newBusinessDate].
+    Future<void> updateBusinessDate(String oldBusinessDate, String newBusinessDate) async {
+      final db = await AppDatabase.instance;
+      await db.update(
+        'debts',
+        {'businessDate': newBusinessDate},
+        where: 'businessDate = ?',
+        whereArgs: [oldBusinessDate],
+      );
+    }
+
   /// ✅ REQUIRED BY DebtService
   Future<List<DebtRecord>> fetchAll() async {
     final db = await AppDatabase.instance;
-
     final rows = await db.query('debts');
 
     return rows.map((r) {
@@ -49,6 +63,7 @@ class DebtRepo {
         fuelType: r['fuelType'] as String,
         amount: (r['amount'] as num).toDouble(),
         createdAt: DateTime.parse(r['createdAt'] as String),
+        businessDate: r['businessDate'] as String?,   // ← ADD THIS
         settled: (r['settled'] as int) == 1,
       );
     }).toList();

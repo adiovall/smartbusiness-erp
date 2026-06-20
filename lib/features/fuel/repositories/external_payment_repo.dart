@@ -11,6 +11,7 @@ class ExternalPaymentRepo {
       SELECT 
         d.id as id,
         d.date as date,
+        d.businessDate as businessDate,
         d.supplier as supplier,
         d.fuelType as fuelType,
         d.externalPaid as amount,
@@ -26,6 +27,7 @@ class ExternalPaymentRepo {
       SELECT
         s.id as id,
         s.date as date,
+        s.businessDate as businessDate,
         s.supplier as supplier,
         s.fuelType as fuelType,
         s.externalPaid as amount,
@@ -42,6 +44,7 @@ class ExternalPaymentRepo {
       return ExternalPaymentRecord(
         id: r['id'] as String,
         date: DateTime.parse(r['date'] as String),
+        businessDate: (r['businessDate'] as String?) ?? (r['date'] as String).substring(0, 10),
         supplier: (r['supplier'] as String?) ?? '',
         fuelType: (r['fuelType'] as String?) ?? '',
         amount: (r['amount'] as num).toDouble(),

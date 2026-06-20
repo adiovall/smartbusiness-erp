@@ -40,6 +40,16 @@ class SaleRepo {
     return rows.map(SaleRecord.fromJson).toList();
   }
 
+  Future<void> updateBusinessDate(String oldDate, String newDate) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'sales',
+      {'businessDate': newDate},
+      where: 'businessDate = ?',
+      whereArgs: [oldDate],
+    );
+  }
+
   Future<double> getTodayTotalAmount() async {
     final sales = await fetchToday();
     double total = 0.0;

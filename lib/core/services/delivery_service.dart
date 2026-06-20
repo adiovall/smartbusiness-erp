@@ -313,6 +313,19 @@ class DeliveryService with ChangeNotifier {
     notifyListeners();
   }
 
+  /// NEW: moves all deliveries (and their in-memory cache) tagged with
+  /// oldDate to newDate.
+  Future<void> moveBusinessDate(String oldDate, String newDate) async {
+    await deliveryRepo.updateBusinessDate(oldDate, newDate);
+
+    for (int i = 0; i < _deliveries.length; i++) {
+      if (_deliveries[i].businessDate == oldDate) {
+        _deliveries[i] = _deliveries[i].copyWith(businessDate: newDate);
+      }
+    }
+    notifyListeners();
+  }
+
   /// FINALIZE: submit drafts
   /// - mark submitted in DB
   /// - consume overpaid credits used

@@ -19,6 +19,11 @@ class SettlementService {
     required this.expenseService, // ✅ add
   });
 
+  /// NEW: moves all settlements tagged with oldDate to newDate.
+  Future<void> moveBusinessDate(String oldDate, String newDate) async {
+    await settlementRepo.updateBusinessDate(oldDate, newDate);
+  }
+
   Future<SettlementRecord> settleSplit({
     required String supplier,
     required String fuelType,

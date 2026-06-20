@@ -42,6 +42,16 @@ class ExpenseRepo {
     return rows.map((e) => ExpenseRecord.fromJson(e)).toList();
   }
 
+  Future<void> updateBusinessDate(String oldDate, String newDate) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'expenses',
+      {'businessDate': newDate},
+      where: 'businessDate = ?',
+      whereArgs: [oldDate],
+    );
+  }
+
   Future<List<ExpenseRecord>> fetchTodayDrafts() async {
     final db = await AppDatabase.instance;
 

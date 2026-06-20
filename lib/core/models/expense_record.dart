@@ -3,6 +3,7 @@
 class ExpenseRecord {
   final String id;
   final DateTime date;
+  final String businessDate;   // ← NEW: yyyy-MM-dd, defaults to date's day
   final double amount;
   final String category;
   final String comment;
@@ -15,6 +16,7 @@ class ExpenseRecord {
   ExpenseRecord({
     required this.id,
     required this.date,
+    String? businessDate,                              // ← NEW
     required this.amount,
     required this.category,
     required this.comment,
@@ -23,11 +25,15 @@ class ExpenseRecord {
     this.isLocked = false,
     this.isSubmitted = false,
     this.isArchived = false,
-  });
+  }) : businessDate = businessDate ?? _dateKey(date);    // ← NEW
+
+  static String _dateKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'date': date.toIso8601String(),
+        'businessDate': businessDate,                    // ← NEW
         'amount': amount,
         'category': category,
         'comment': comment,
@@ -39,9 +45,11 @@ class ExpenseRecord {
       };
 
   factory ExpenseRecord.fromJson(Map<String, dynamic> json) {
+    final d = DateTime.parse(json['date'] as String);
     return ExpenseRecord(
       id: json['id'] as String,
-      date: DateTime.parse(json['date'] as String),
+      date: d,
+      businessDate: (json['businessDate'] as String?) ?? _dateKey(d),  // ← NEW, falls back for old rows
       amount: (json['amount'] as num).toDouble(),
       category: json['category'] as String,
       comment: (json['comment'] as String?) ?? '',

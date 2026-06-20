@@ -2,13 +2,31 @@
 
 import '../models/day_entry.dart';
 import '../../features/fuel/repositories/day_entry_repo.dart';
+import 'sale_service.dart';
+import 'delivery_service.dart';
+import 'debt_service.dart';
+import 'expense_service.dart';
+import 'settlement_service.dart';
 
 class DayEntryService {
   final DayEntryRepo repo;
 
+  final SaleService saleService;
+  final DeliveryService deliveryService;
+  final DebtService debtService;
+  final ExpenseService expenseService;
+  final SettlementService settlementService;
+
   final Map<String, DayEntry> _cache = {};
 
-  DayEntryService(this.repo);
+  DayEntryService({
+    required this.repo,
+    required this.saleService,
+    required this.deliveryService,
+    required this.debtService,
+    required this.expenseService,
+    required this.settlementService,
+  });
 
   Future<DayEntry> getOrCreate(String date) async {
     if (_cache.containsKey(date)) return _cache[date]!;
@@ -27,7 +45,6 @@ class DayEntryService {
     }
   }
 
-  /// Mark a section as draft (yellow)
   Future<void> markSubmitted(String date, String type) async {
     final entry = await getOrCreate(date);
 
@@ -49,13 +66,9 @@ class DayEntryService {
     await repo.upsert(entry);
   }
 
-  /// Submit only ONE section (e.g. Delivery only).
-  /// This is a SECTION-LEVEL submit — it does NOT mean the whole day
-  /// has been sent to the analysis server. That only happens in submitDay().
-  /// So: do NOT touch entry.submittedAt here.
   Future<void> submitSection({
-    required String businessDate, // yyyy-MM-dd
-    required String section, // 'Sale'|'Del'|'Exp'|'Set'
+    required String businessDate,
+    required String section,
     required DateTime submittedAt,
   }) async {
     final entry = await getOrCreate(businessDate);
@@ -77,27 +90,14 @@ class DayEntryService {
         throw Exception('Unknown section: $section');
     }
 
-    // ❌ removed: entry.submittedAt = submittedAt;
-    // submittedAt is reserved for the GLOBAL "Send Data" action only.
-    // Section-level submits should only ever render YELLOW, never GREEN.
-
     await repo.upsert(entry);
   }
 
-  Future<List<DayEntry>> fetchUnsentDates() async {
-    return repo.fetchUnsentDates();
-  }
-
-  /// Returns true if this business date has ALREADY been sent
-  /// (used to block re-sending and show "already sent" message).
   bool isDayAlreadySent(String businessDate) {
     final entry = _cache[businessDate];
     return entry?.submittedAt != null;
   }
 
-  /// Submit whole day (green, permanent) for all sections.
-  /// Throws if this business date was already sent, so the caller
-  /// can show a blocking "already sent" message instead of resending.
   Future<void> submitDay({
     required String businessDate,
     required DateTime submittedAt,
@@ -118,6 +118,57 @@ class DayEntryService {
     await repo.upsert(entry);
   }
 
+  Future<void> correctBusinessDate({
+    required String oldDate,
+    required String newDate,
+  }) async {
+    if (oldDate == newDate) return;
+
+    if (isDayAlreadySent(newDate)) {
+      throw DaySentAlreadyException(newDate);
+    }
+    final newEntryFromDb = await repo.fetchByDate(newDate);
+    if (newEntryFromDb?.submittedAt != null) {
+      throw DaySentAlreadyException(newDate);
+    }
+
+    final oldEntry = await getOrCreate(oldDate);
+    final newEntry = await getOrCreate(newDate);
+
+    newEntry.sale = _mergeStatus(oldEntry.sale, newEntry.sale);
+    newEntry.delivery = _mergeStatus(oldEntry.delivery, newEntry.delivery);
+    newEntry.expense = _mergeStatus(oldEntry.expense, newEntry.expense);
+    newEntry.settlement = _mergeStatus(oldEntry.settlement, newEntry.settlement);
+
+    await repo.upsert(newEntry);
+
+    await saleService.moveBusinessDate(oldDate, newDate);
+    await deliveryService.moveBusinessDate(oldDate, newDate);
+    await debtService.moveBusinessDate(oldDate, newDate);
+    await expenseService.moveBusinessDate(oldDate, newDate);
+    await settlementService.moveBusinessDate(oldDate, newDate);
+
+    oldEntry.sale = DayEntryStatus.none;
+    oldEntry.delivery = DayEntryStatus.none;
+    oldEntry.expense = DayEntryStatus.none;
+    oldEntry.settlement = DayEntryStatus.none;
+    await repo.upsert(oldEntry);
+  }
+
+  DayEntryStatus _mergeStatus(DayEntryStatus a, DayEntryStatus b) {
+    if (a == DayEntryStatus.submitted || b == DayEntryStatus.submitted) {
+      return DayEntryStatus.submitted;
+    }
+    if (a == DayEntryStatus.draft || b == DayEntryStatus.draft) {
+      return DayEntryStatus.draft;
+    }
+    return DayEntryStatus.none;
+  }
+
+  Future<List<DayEntry>> fetchUnsentDates() async {
+    return repo.fetchUnsentDates();
+  }
+
   DayEntryStatus _finalize(DayEntryStatus s) {
     return s == DayEntryStatus.draft ? DayEntryStatus.submitted : s;
   }
@@ -125,9 +176,6 @@ class DayEntryService {
   DayEntry? getFromCache(String date) => _cache[date];
 }
 
-/// Thrown when submitDay() is called for a business date that
-/// has already been sent. UI should catch this and show a
-/// blocking "already sent" message — no resend allowed.
 class DaySentAlreadyException implements Exception {
   final String businessDate;
   DaySentAlreadyException(this.businessDate);
