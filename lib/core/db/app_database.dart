@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 10,
+        version: 11,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -36,7 +36,8 @@ class AppDatabase {
         fuelType TEXT NOT NULL,
         liters REAL NOT NULL,
         unitPrice REAL NOT NULL,
-        totalAmount REAL NOT NULL
+        totalAmount REAL NOT NULL,
+        isArchived INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -124,6 +125,15 @@ class AppDatabase {
         submittedAt TEXT
       )
     ''');
+    await db.execute('''
+      CREATE TABLE outbox (
+        id TEXT PRIMARY KEY,
+        businessDate TEXT NOT NULL,
+        payloadJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -179,6 +189,20 @@ class AppDatabase {
       await db.execute(
         "UPDATE expenses SET businessDate = substr(date, 1, 10) WHERE businessDate IS NULL OR businessDate = ''"
       );
+    }
+
+    if (oldVersion < 11) {
+      await addCol("ALTER TABLE sales ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0");
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS outbox (
+          id TEXT PRIMARY KEY,
+          businessDate TEXT NOT NULL,
+          payloadJson TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          synced INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
     }
   }
 }

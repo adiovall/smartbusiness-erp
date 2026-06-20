@@ -153,8 +153,12 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     if (mounted) setState(() {});
   }
 
+  // Replace _confirmSendData(), _row(), and _sendData() in fuel_admin_final.dart
+  // with everything below. Also add the two new helper methods
+  // (_showSendConfirmDialog, _showEditDateDialog).
+
   // =====================
-  // SEND DATA CONFIRMATION
+  // SEND DATA FLOW
   // =====================
 
   Future<void> _confirmSendData() async {
@@ -167,40 +171,66 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       return;
     }
 
+    await _showDatePickerDialog(unsent);
+  }
+
+  Future<void> _showDatePickerDialog(List<de.DayEntry> unsent) async {
     final picked = await showDialog<de.DayEntry>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) => Dialog(
         backgroundColor: const Color(0xFF020617),
-        title: const Text('Select Business Date', style: TextStyle(color: Colors.white)),
-        content: SizedBox(
-          width: 360,
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: unsent.length,
-            separatorBuilder: (_, __) => const Divider(color: Color(0xFF1f2937)),
-            itemBuilder: (_, i) {
-              final entry = unsent[i];
-              return ListTile(
-                title: Text(entry.date, style: const TextStyle(color: Colors.white)),
-                subtitle: Text(
-                  _sectionsSummary(entry),
-                  style: const TextStyle(color: Colors.white60, fontSize: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Colors.white, width: 1), // ← white border
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Select Business Date',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              const SizedBox(height: 16),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 400, minWidth: 320),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: unsent.length,
+                  separatorBuilder: (_, __) => const Divider(color: Color(0xFF1f2937)),
+                  itemBuilder: (_, i) {
+                    final entry = unsent[i];
+                    return ListTile(
+                      title: Text(entry.date, style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(
+                        _sectionsSummary(entry),
+                        style: const TextStyle(color: Colors.white60, fontSize: 12),
+                      ),
+                      trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+                      onTap: () => Navigator.pop(context, entry),
+                    );
+                  },
                 ),
-                trailing: const Icon(Icons.chevron_right, color: Colors.white38),
-                onTap: () => Navigator.pop(context, entry),
-              );
-            },
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        ],
       ),
     );
 
     if (picked == null) return;
 
-    await _showSendConfirmDialog(picked);
+    await _showSendConfirmDialog(picked, unsent);
   }
 
   String _sectionsSummary(de.DayEntry entry) {
@@ -212,37 +242,142 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     return parts.isEmpty ? 'No sections submitted' : parts.join(' • ');
   }
 
-  Future<void> _showSendConfirmDialog(de.DayEntry entry) async {
-    final proceed = await showDialog<bool>(
+  Future<void> _showSendConfirmDialog(
+    de.DayEntry entry,
+    List<de.DayEntry> unsentListForBackNav,
+  ) async {
+    final action = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) => Dialog(
         backgroundColor: const Color(0xFF020617),
-        title: const Text('Send This Data?', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _row('Sales', entry.sale),
-            _row('Delivery', entry.delivery),
-            _row('Expense', entry.expense),
-            _row('Settlement', entry.settlement),
-            const SizedBox(height: 12),
-            Text('Business Date: ${entry.date}', style: const TextStyle(color: Colors.grey)),
-          ],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Colors.white, width: 1), // ← white border
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.send),
-            label: const Text('Send'),
-            onPressed: () => Navigator.pop(context, true),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Send This Data?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              const SizedBox(height: 16),
+              _row('Sales', entry.sale),
+              _row('Delivery', entry.delivery),
+              _row('Expense', entry.expense),
+              _row('Settlement', entry.settlement),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Text('Business Date: ', style: TextStyle(color: Colors.grey)),
+                  Text(entry.date, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () => Navigator.pop(context, 'edit'),
+                    child: const Icon(Icons.edit, size: 16, color: Colors.orange),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, 'cancel'),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.send),
+                    label: const Text('Send'),
+                    onPressed: () => Navigator.pop(context, 'send'),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
 
-    if (proceed == true) {
+    if (action == 'cancel' || action == null) {
+      // ✅ Cancel goes BACK to the date picker list, not all the way out —
+      // unless there's nothing left to pick (handled by re-fetching fresh).
+      final freshUnsent = await Services.dayEntry.fetchUnsentDates();
+      if (freshUnsent.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nothing left to send')),
+        );
+        return;
+      }
+      await _showDatePickerDialog(freshUnsent);
+      return;
+    }
+
+    if (action == 'edit') {
+      final newDate = await _showEditDateDialog(entry.date);
+      if (newDate == null) {
+        // they cancelled the edit — go back to the SAME confirm dialog
+        await _showSendConfirmDialog(entry, unsentListForBackNav);
+        return;
+      }
+
+      try {
+        await Services.dayEntry.correctBusinessDate(oldDate: entry.date, newDate: newDate);
+      } on DaySentAlreadyException {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$newDate has already been sent. Cannot move data there.')),
+        );
+        // go back to picker fresh
+        final freshUnsent = await Services.dayEntry.fetchUnsentDates();
+        if (freshUnsent.isNotEmpty) await _showDatePickerDialog(freshUnsent);
+        return;
+      }
+
+      // re-fetch the corrected entry (now living under newDate) and show
+      // the confirm dialog again with the updated date.
+      final updatedEntry = await Services.dayEntry.getOrCreate(newDate);
+      await _initializeData();
+      await _loadWeeklyFromDayEntryCache();
+      if (mounted) setState(() {});
+
+      final freshUnsent = await Services.dayEntry.fetchUnsentDates();
+      await _showSendConfirmDialog(updatedEntry, freshUnsent);
+      return;
+    }
+
+    if (action == 'send') {
       await _sendData(entry.date);
     }
+  }
+
+  Future<String?> _showEditDateDialog(String currentDate) async {
+    DateTime initial = DateTime.tryParse(currentDate) ?? DateTime.now();
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.orange,
+              surface: Color(0xFF020617),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked == null) return null;
+    return DateFormat('yyyy-MM-dd').format(picked);
   }
 
   Widget _row(String label, de.DayEntryStatus status) {
@@ -295,6 +430,9 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       ),
     );
   }
+  
+
+  
 
   void _addSale(double v) => setState(() => todaysSales += v);
   void _addExpense(double v) => setState(() => todaysExpense += v);
