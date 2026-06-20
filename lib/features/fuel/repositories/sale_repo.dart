@@ -21,7 +21,7 @@ class SaleRepo {
 
     final rows = await db.query(
       'sales',
-      where: "substr(date, 1, 10) = ?",
+      where: "substr(date, 1, 10) = ? AND isArchived = 0",
       whereArgs: [todayStr],
       orderBy: 'date DESC',
     );
@@ -66,7 +66,7 @@ class SaleRepo {
     final todayStr = DateTime.now().toIso8601String().substring(0, 10); // yyyy-MM-dd
 
     final rows = await db.rawQuery(
-      'SELECT SUM(totalAmount) AS total FROM sales WHERE substr(date,1,10) = ?',
+      'SELECT SUM(totalAmount) AS total FROM sales WHERE substr(date,1,10) = ? AND isArchived = 0',
       [todayStr],
     );
 
