@@ -163,6 +163,8 @@ class DeliveryRepo {
     );
   }
 
+  
+
   Future<List<String>> fetchAllSuppliersDistinct({int limit = 500}) async {
     final db = await AppDatabase.instance;
 
@@ -181,4 +183,27 @@ class DeliveryRepo {
 
     return rows.map((r) => (r['supplier'] as String)).toList();
   }
+
+  Future<List<DeliveryRecord>> fetchAllForBusinessDate(String businessDate) async {
+  final db = await AppDatabase.instance;
+  final rows = await db.query(
+    'deliveries',
+    where: 'businessDate = ?',
+    whereArgs: [businessDate],
+    orderBy: 'date DESC',
+  );
+  return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
+}
+
+Future<void> archiveForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'deliveries',
+      {'isArchived': 1},
+      where: 'businessDate = ?',
+      whereArgs: [businessDate],
+    );
+  }
+
+  
 }

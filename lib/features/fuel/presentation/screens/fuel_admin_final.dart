@@ -403,7 +403,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   }
 
   Future<void> _sendData(String businessDate) async {
-    try {
+  try {
       await Services.dayEntry.submitDay(
         businessDate: businessDate,
         submittedAt: DateTime.now(),
@@ -419,6 +419,11 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       return;
     }
 
+    // ✅ NEW: build the outbox payload and archive sale/delivery/expense
+    // for this business date now that the day is officially sent.
+    await Services.outbox.buildAndArchive(businessDate);
+
+    await _initializeData();          // refresh top cards
     await _loadWeeklyFromDayEntryCache();
 
     if (!mounted) return;

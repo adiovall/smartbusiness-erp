@@ -67,4 +67,10 @@ class TankService with ChangeNotifier {
   }
 
   List<TankState> get allTanks => _tanks.values.toList();
+
+  /// Snapshot of all current tank levels, for inclusion in the
+  /// outbox payload at Send Data time. Pure read, no side effects.
+  List<Map<String, dynamic>> snapshotAll() {
+    return _tanks.values.map((t) => t.toJson()).toList();
+  }
 }

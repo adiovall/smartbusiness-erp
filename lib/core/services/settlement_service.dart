@@ -24,6 +24,10 @@ class SettlementService {
     await settlementRepo.updateBusinessDate(oldDate, newDate);
   }
 
+  Future<List<SettlementRecord>> allForBusinessDate(String businessDate) async {
+    return settlementRepo.fetchAllForBusinessDate(businessDate);
+  }
+
   Future<SettlementRecord> settleSplit({
     required String supplier,
     required String fuelType,

@@ -52,6 +52,27 @@ class ExpenseRepo {
     );
   }
 
+  Future<List<ExpenseRecord>> fetchAllForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      'expenses',
+      where: 'businessDate = ?',
+      whereArgs: [businessDate],
+      orderBy: 'date DESC',
+    );
+    return rows.map((e) => ExpenseRecord.fromJson(e)).toList();
+  }
+
+  Future<void> archiveForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'expenses',
+      {'isArchived': 1},
+      where: 'businessDate = ?',
+      whereArgs: [businessDate],
+    );
+  }
+
   Future<List<ExpenseRecord>> fetchTodayDrafts() async {
     final db = await AppDatabase.instance;
 

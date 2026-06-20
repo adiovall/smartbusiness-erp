@@ -116,4 +116,9 @@ class DebtService {
     }
     await repo.updateBusinessDate(oldBusinessDate, newBusinessDate);
   }
+  
+  List<DebtRecord> allForBusinessDate(String businessDate) {
+    return _debts.where((d) => d.businessDate == businessDate).toList();
+  }
+
 }

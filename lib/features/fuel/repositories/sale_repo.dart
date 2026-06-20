@@ -88,4 +88,27 @@ class SaleRepo {
     final db = await AppDatabase.instance;
     await db.delete('sales');
   }
+
+  // Add to sale_repo.dart:
+
+  Future<List<SaleRecord>> fetchAllForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      'sales',
+      where: 'businessDate = ?',
+      whereArgs: [businessDate],
+      orderBy: 'date DESC',
+    );
+    return rows.map(SaleRecord.fromJson).toList();
+  }
+
+  Future<void> archiveForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'sales',
+      {'isArchived': 1},
+      where: 'businessDate = ?',
+      whereArgs: [businessDate],
+    );
+  }
 }

@@ -265,4 +265,13 @@ class ExpenseService with ChangeNotifier {
     final allToday = await repo.fetchAllTodayExpenses();
     return allToday.fold<double>(0.0, (sum, e) => sum + e.amount);
   }
+  
+  Future<List<ExpenseRecord>> allForBusinessDate(String businessDate) async {
+    return repo.fetchAllForBusinessDate(businessDate);
+  }
+
+  Future<void> archiveForBusinessDate(String businessDate) async {
+    await repo.archiveForBusinessDate(businessDate);
+    await refreshToday(); // reloads in-memory list, archived rows drop out of allTodayExpenses
+  }
 }

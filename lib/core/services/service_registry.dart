@@ -7,6 +7,7 @@ import 'debt_service.dart';
 import 'settlement_service.dart';
 import 'expense_service.dart';
 import 'day_entry_service.dart';
+import 'outbox_service.dart';
 
 import '../../features/fuel/repositories/delivery_repo.dart';
 import '../../features/fuel/repositories/debt_repo.dart';
@@ -17,6 +18,7 @@ import '../../features/fuel/repositories/day_entry_repo.dart';
 import '../../features/fuel/repositories/settlement_repo.dart';
 import '../../features/fuel/repositories/external_payment_repo.dart';
 import '../services/external_payment_service.dart';
+import '../../features/fuel/repositories/outbox_repo.dart';
 
 class Services {
   Services._();
@@ -31,6 +33,7 @@ class Services {
   static final expenseRepo = ExpenseRepo();
   static final dayEntryRepo = DayEntryRepo();
   static final settlementRepo = SettlementRepo();
+  static final outboxRepo = OutboxRepo();
   static late ExternalPaymentService external;
 
   // =====================
@@ -68,6 +71,16 @@ class Services {
     debtService: debt,
     expenseService: expense,
     settlementService: settlement,
+  );
+
+  static final outbox = OutboxService(
+    repo: outboxRepo,
+    saleService: sale,
+    deliveryService: delivery,
+    debtService: debt,
+    expenseService: expense,
+    settlementService: settlement,
+    tankService: tank,
   );
 
   // =====================

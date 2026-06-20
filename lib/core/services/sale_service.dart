@@ -88,4 +88,14 @@ class SaleService {
     if (difference.abs() > 0.01) return SaleMismatch(difference);
     return null;
   }
+
+  // Add to sale_service.dart:
+
+Future<List<SaleRecord>> allForBusinessDate(String businessDate) async {
+  return saleRepo.fetchAllForBusinessDate(businessDate);
+}
+
+Future<void> archiveForBusinessDate(String businessDate) async {
+    await saleRepo.archiveForBusinessDate(businessDate);
+  }
 }

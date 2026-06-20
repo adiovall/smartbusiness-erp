@@ -46,4 +46,15 @@ class SettlementRepo {
     final rows = await db.query('settlements', orderBy: 'date DESC');
     return rows.map(SettlementRecord.fromJson).toList();
   }
+
+  Future<List<SettlementRecord>> fetchAllForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      'settlements',
+      where: 'businessDate = ?',
+      whereArgs: [businessDate],
+      orderBy: 'date DESC',
+    );
+    return rows.map(SettlementRecord.fromJson).toList();
+  }
 }

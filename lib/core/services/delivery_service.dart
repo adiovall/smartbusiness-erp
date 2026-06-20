@@ -326,6 +326,23 @@ class DeliveryService with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<List<DeliveryRecord>> allForBusinessDate(String businessDate) async {
+    return deliveryRepo.fetchAllForBusinessDate(businessDate);
+  }
+
+  Future<void> archiveForBusinessDate(String businessDate) async {
+    await deliveryRepo.archiveForBusinessDate(businessDate);
+
+    for (int i = 0; i < _deliveries.length; i++) {
+      if (_deliveries[i].businessDate == businessDate) {
+        _deliveries[i] = _deliveries[i].copyWith(isArchived: 1);
+      }
+    }
+    notifyListeners();
+  }
+
+  
+
   /// FINALIZE: submit drafts
   /// - mark submitted in DB
   /// - consume overpaid credits used
