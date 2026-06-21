@@ -8,6 +8,7 @@ import 'settlement_service.dart';
 import 'expense_service.dart';
 import 'day_entry_service.dart';
 import 'outbox_service.dart';
+import 'analytics_service.dart';
 
 import '../../features/fuel/repositories/delivery_repo.dart';
 import '../../features/fuel/repositories/debt_repo.dart';
@@ -34,6 +35,7 @@ class Services {
   static final dayEntryRepo = DayEntryRepo();
   static final settlementRepo = SettlementRepo();
   static final outboxRepo = OutboxRepo();
+  static final analytics = AnalyticsService(outboxRepo: outboxRepo);
   static late ExternalPaymentService external;
 
   // =====================
@@ -83,6 +85,8 @@ class Services {
     tankService: tank,
     externalPaymentRepo: ExternalPaymentRepo(),
   );
+
+  
 
   // =====================
   // INIT (APP START)
