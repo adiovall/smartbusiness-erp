@@ -81,6 +81,7 @@ class Services {
     expenseService: expense,
     settlementService: settlement,
     tankService: tank,
+    externalPaymentRepo: ExternalPaymentRepo(),
   );
 
   // =====================

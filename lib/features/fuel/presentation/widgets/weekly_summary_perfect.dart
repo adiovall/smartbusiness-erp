@@ -10,13 +10,7 @@ const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
 
 class WeeklySummaryPerfect extends StatelessWidget {
-  // Per-section status (Sale/Del/Exp/Set) for each day label, e.g. "Mon 15"
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus;
-
-  // NEW: whether each day has been fully "Sent" via the global Send Data button.
-  // Key = same day label as weeklyStatus (e.g. "Mon 15").
-  // true  -> entire row renders GREEN, permanently.
-  // false -> fall back to per-section status (submitted -> YELLOW, none -> grey).
   final Map<String, bool> daySentStatus;
 
   const WeeklySummaryPerfect({
@@ -115,13 +109,10 @@ class WeeklySummaryPerfect extends StatelessWidget {
     Color color;
     IconData icon;
 
-    if (isSent) {
-      // Day has been globally sent via "Send Data" -> permanent green,
-      // regardless of individual section status.
+    if (isSent && status != de.DayEntryStatus.none) {
       color = Colors.green;
       icon = Icons.check_circle;
     } else if (status == de.DayEntryStatus.submitted) {
-      // Section submitted locally but day not yet sent -> yellow.
       color = Colors.amber;
       icon = Icons.check_circle;
     } else if (status == de.DayEntryStatus.draft) {

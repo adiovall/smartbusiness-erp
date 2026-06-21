@@ -3,6 +3,8 @@
 import 'dart:convert';
 import '../models/outbox_record.dart';
 import '../../features/fuel/repositories/outbox_repo.dart';
+import '../../features/fuel/repositories/external_payment_repo.dart';
+
 import 'sale_service.dart';
 import 'delivery_service.dart';
 import 'debt_service.dart';
@@ -18,6 +20,7 @@ class OutboxService {
   final ExpenseService expenseService;
   final SettlementService settlementService;
   final TankService tankService;
+  final ExternalPaymentRepo externalPaymentRepo;   // ← ADD
 
   OutboxService({
     required this.repo,
@@ -27,15 +30,17 @@ class OutboxService {
     required this.expenseService,
     required this.settlementService,
     required this.tankService,
+    required this.externalPaymentRepo,   // ← ADD
   });
 
   Future<OutboxRecord> buildAndArchive(String businessDate) async {
     final sales = await saleService.allForBusinessDate(businessDate);
     final deliveries = await deliveryService.allForBusinessDate(businessDate);
-    final debts = debtService.allForBusinessDate(businessDate); // sync, in-memory
+    final debts = debtService.allForBusinessDate(businessDate);
     final settlements = await settlementService.allForBusinessDate(businessDate);
     final expenses = await expenseService.allForBusinessDate(businessDate);
-    final tankSnapshot = tankService.snapshotAll(); // sync, in-memory
+    final externalPayments = await externalPaymentRepo.fetchAllForBusinessDate(businessDate); // ← ADD
+    final tankSnapshot = tankService.snapshotAll();
 
     final payload = {
       'businessDate': businessDate,
@@ -45,6 +50,7 @@ class OutboxService {
       'debts': debts.map((d) => d.toJson()).toList(),
       'settlements': settlements.map((s) => s.toJson()).toList(),
       'expenses': expenses.map((e) => e.toJson()).toList(),
+      'externalPayments': externalPayments.map((e) => e.toJson()).toList(), // ← ADD
       'tankSnapshot': tankSnapshot,
     };
 

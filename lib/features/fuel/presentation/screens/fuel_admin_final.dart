@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'analytics_screen.dart';
 import '../widgets/entry_tabs/sale_tab.dart';
 import '../widgets/entry_tabs/delivery_tab.dart';
 import '../widgets/entry_tabs/expense_tab.dart';
@@ -57,7 +58,6 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     _initializeData(); 
 
     Future.microtask(() async {
-      await Services.init();
 
       // Load today's totals
       final salesTotal = await Services.saleRepo.getTodayTotalAmount();
@@ -153,25 +153,113 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     if (mounted) setState(() {});
   }
 
-  // Replace _confirmSendData(), _row(), and _sendData() in fuel_admin_final.dart
-  // with everything below. Also add the two new helper methods
-  // (_showSendConfirmDialog, _showEditDateDialog).
 
   // =====================
   // SEND DATA FLOW
   // =====================
 
+  // Replace _confirmSendData() with this version. When today is already
+  // sent but has new submitted activity, instead of just a message, it
+  // offers to open the edit-date flow directly so the person can retag
+  // that activity to an earlier, unsent business date right away.
+
   Future<void> _confirmSendData() async {
     final unsent = await Services.dayEntry.fetchUnsentDates();
 
-    if (unsent.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nothing to send')),
-      );
+    if (unsent.isNotEmpty) {
+      await _showDatePickerDialog(unsent);
       return;
     }
 
-    await _showDatePickerDialog(unsent);
+    final todayDbKey = _businessDateKey(_now);
+    final todayEntry = await Services.dayEntry.getOrCreate(todayDbKey);
+    final todayAlreadySent = todayEntry.submittedAt != null;
+
+    final hasAnySubmittedToday = [
+      todayEntry.sale,
+      todayEntry.delivery,
+      todayEntry.expense,
+      todayEntry.settlement,
+    ].any((s) => s == de.DayEntryStatus.submitted);
+
+    if (todayAlreadySent && hasAnySubmittedToday) {
+      final wantsToRetag = await showDialog<bool>(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: const Color(0xFF020617),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Colors.white, width: 1),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Today's Data Already Sent",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Today was already sent and can't be sent again. "
+                  "If this new activity actually belongs to an earlier day "
+                  "that hasn't been sent yet, you can move it there now. "
+                  "Otherwise, leave it — it will be picked up once tomorrow "
+                  "becomes the new business day.",
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Leave it for tomorrow'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Move to another date'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      if (wantsToRetag == true) {
+        final newDate = await _showEditDateDialog(todayDbKey);
+        if (newDate == null) return; // they cancelled the picker
+
+        try {
+          await Services.dayEntry.correctBusinessDate(oldDate: todayDbKey, newDate: newDate);
+        } on DaySentAlreadyException {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$newDate has already been sent. Cannot move data there.')),
+          );
+          return;
+        }
+
+        await _initializeData();
+        await _loadWeeklyFromDayEntryCache();
+        if (!mounted) return;
+        setState(() {});
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Moved to $newDate. Open Send Data again to send it.')),
+        );
+      }
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Nothing to send')),
+    );
   }
 
   Future<void> _showDatePickerDialog(List<de.DayEntry> unsent) async {
@@ -470,7 +558,14 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                 _sideIcon(Icons.local_gas_station, true),
                 _sideIcon(Icons.store_mall_directory),
                 _sideIcon(Icons.water_drop),
-                _sideIcon(Icons.analytics),
+                _sideIcon(Icons.analytics, false, () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AnalyticsScreen(onBack: () => Navigator.pop(context)),
+                    ),
+                  );
+                }),
                 const Spacer(),
                 _sideIcon(Icons.settings),
                 const SizedBox(height: 24),
@@ -751,10 +846,13 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
-  Widget _sideIcon(IconData icon, [bool active = false]) {
+  Widget _sideIcon(IconData icon, [bool active = false, VoidCallback? onTap]) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Icon(icon, size: 28, color: active ? Colors.green : Colors.grey),
+      child: InkWell(
+        onTap: onTap,
+        child: Icon(icon, size: 28, color: active ? Colors.green : Colors.grey),
+      ),
     );
   }
 }

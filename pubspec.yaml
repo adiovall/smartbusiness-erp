@@ -15,6 +15,7 @@ dependencies:
   syncfusion_flutter_gauges: ^31.2.18
   syncfusion_flutter_datepicker: ^31.2.18
   intl: ^0.20.2
+  fl_chart: ^0.69.0
 
   sqflite: ^2.3.0
   sqflite_common_ffi: ^2.3.2

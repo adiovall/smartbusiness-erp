@@ -30,4 +30,16 @@ class ExternalPaymentRecord {
     required this.source,
     required this.isSubmitted,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'date': date.toIso8601String(),
+    'businessDate': businessDate,
+    'supplier': supplier,
+    'fuelType': fuelType,
+    'amount': amount,
+    'kind': kind,
+    'source': source,
+    'isSubmitted': isSubmitted,
+  };
 }
