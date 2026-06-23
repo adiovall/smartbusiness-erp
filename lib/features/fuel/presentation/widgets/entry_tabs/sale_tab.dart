@@ -208,9 +208,13 @@ class _SaleTabState extends State<SaleTab> {
         date: DateTime.now(),
         pumpNo: p.pumpNo.toString(),
         fuelType: _abbrFuel(p.fuel), // PMS/AGO/DPK/GAS
+        opening: p.opening,
+        closing: p.closing,
         liters: p.liters,
         unitPrice: p.unitPrice,
       );
+
+      await Services.saleRepo.insert(sale);
 
       await Services.saleRepo.insert(sale);
     }

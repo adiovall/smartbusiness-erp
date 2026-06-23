@@ -27,11 +27,11 @@ class SaleService {
   });
 
   SaleRecord recordDraftSale({
-    required String pumpNo,
-    required String fuelType,
-    required double opening,
-    required double closing,
-    required double unitPrice,
+  required String pumpNo,
+  required String fuelType,
+  required double opening,
+  required double closing,
+  required double unitPrice,
   }) {
     final liters = max(0.0, closing - opening);
 
@@ -48,6 +48,8 @@ class SaleService {
       date: DateTime.now(),
       pumpNo: pumpNo,
       fuelType: fuelType,
+      opening: opening,    // ← ADD
+      closing: closing,    // ← ADD
       liters: liters,
       unitPrice: unitPrice,
     );

@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 11,
+        version: 12,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -34,6 +34,8 @@ class AppDatabase {
         businessDate TEXT NOT NULL DEFAULT '',
         pumpNo TEXT NOT NULL,
         fuelType TEXT NOT NULL,
+        opening REAL NOT NULL DEFAULT 0,
+        closing REAL NOT NULL DEFAULT 0,
         liters REAL NOT NULL,
         unitPrice REAL NOT NULL,
         totalAmount REAL NOT NULL,
@@ -204,5 +206,11 @@ class AppDatabase {
         )
       ''');
     }
+
+    if (oldVersion < 12) {
+      await addCol("ALTER TABLE sales ADD COLUMN opening REAL NOT NULL DEFAULT 0");
+      await addCol("ALTER TABLE sales ADD COLUMN closing REAL NOT NULL DEFAULT 0");
+    }
+
   }
 }
