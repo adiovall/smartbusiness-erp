@@ -36,7 +36,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _loadingTrend = true;
   List<DayAnalytics> _trend = [];
 
+  bool _loadingFuelPerformance = true;
+  List<FuelPerformance> _fuelPerformance = [];
+
   bool _loadingReconciliation = true;
+
   List<FuelDayReconciliation> _reconciliation = [];
   String? _selectedFuelType;
 
@@ -50,8 +54,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   void initState() {
     super.initState();
     _loadTrend();
+    _loadFuelPerformance();
     _loadAvailableDates();
     _loadReconciliation();
+  }
+
+  Future<void> _loadFuelPerformance() async {
+    setState(() => _loadingFuelPerformance = true);
+    final data = await Services.analytics.fetchFuelPerformance();
+    if (!mounted) return;
+    setState(() {
+      _fuelPerformance = data;
+      _loadingFuelPerformance = false;
+    });
   }
 
   Future<void> _loadReconciliation() async {
@@ -176,10 +191,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
 
     // Refresh everything so the newly imported data shows up immediately.
+    // Refresh everything so the newly imported data shows up immediately.
     _loadTrend();
+    _loadFuelPerformance();
     _loadAvailableDates();
     _loadReconciliation();
-  }
+    }
 
   @override
   Widget build(BuildContext context) {
@@ -308,24 +325,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           const SizedBox(height: 24),
           Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: panelBg,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: panelBorder),
-              ),
-              padding: const EdgeInsets.all(20),
+            child: SingleChildScrollView(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Revenue, Expense, Delivery & Net Over Time',
-                    style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+                  Container(
+                    height: 420,
+                    decoration: BoxDecoration(
+                      color: panelBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: panelBorder),
+                    ),
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Revenue, Expense, Delivery & Net Over Time',
+                          style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        const SizedBox(height: 16),
+                        Expanded(child: _buildChart()),
+                        const SizedBox(height: 12),
+                        _buildLegend(),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  Expanded(child: _buildChart()),
-                  const SizedBox(height: 12),
-                  _buildLegend(),
+                  const SizedBox(height: 20),
+                  _buildFuelPerformanceSection(),
                 ],
               ),
             ),
@@ -809,6 +835,131 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           );
         }),
       ],
+    );
+  }
+
+  Widget _buildFuelPerformanceSection() {
+    if (_loadingFuelPerformance) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_fuelPerformance.isEmpty) {
+      return const Center(
+        child: Text('No fuel performance data yet', style: TextStyle(color: textSecondary)),
+      );
+    }
+
+    final totalRevenue = _fuelPerformance.fold(0.0, (s, f) => s + f.revenue);
+
+    final fuelColors = {
+      'PMS': Colors.green,
+      'AGO': Colors.orange,
+      'DPK': Colors.cyan,
+      'Gas': Colors.purpleAccent,
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Fuel Performance',
+            style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Cards
+              Expanded(
+                flex: 3,
+                child: Column(
+                  children: _fuelPerformance.map((f) {
+                    final share = totalRevenue > 0 ? (f.revenue / totalRevenue) * 100 : 0.0;
+                    final color = fuelColors[f.fuelType] ?? Colors.grey;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: color.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(f.fuelType, style: const TextStyle(color: textPrimary, fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${f.liters.toStringAsFixed(0)} L',
+                                  style: const TextStyle(color: textSecondary, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                money.format(f.revenue),
+                                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                              Text(
+                                '${share.toStringAsFixed(1)}%',
+                                style: const TextStyle(color: textSecondary, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(width: 20),
+              // Pie chart
+              Expanded(
+                flex: 2,
+                child: SizedBox(
+                  height: 200,
+                  child: PieChart(
+                    PieChartData(
+                      sections: _fuelPerformance.map((f) {
+                        final share = totalRevenue > 0 ? (f.revenue / totalRevenue) * 100 : 0.0;
+                        final color = fuelColors[f.fuelType] ?? Colors.grey;
+                        return PieChartSectionData(
+                          value: f.revenue,
+                          color: color,
+                          title: '${share.toStringAsFixed(0)}%',
+                          titleStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                          radius: 70,
+                        );
+                      }).toList(),
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 35,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

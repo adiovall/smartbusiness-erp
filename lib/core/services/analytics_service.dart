@@ -19,6 +19,18 @@ class DayAnalytics {
   });
 }
 
+class FuelPerformance {
+  final String fuelType;
+  final double revenue;
+  final double liters;
+
+  FuelPerformance({
+    required this.fuelType,
+    required this.revenue,
+    required this.liters,
+  });
+}
+
 class AnalyticsService {
   final OutboxRepo outboxRepo;
 
@@ -70,4 +82,41 @@ class AnalyticsService {
     final records = await outboxRepo.fetchAll();
     return records.map((r) => r.businessDate).toList();
   }
+
+  Future<List<FuelPerformance>> fetchFuelPerformance() async {
+    final records = await outboxRepo.fetchAll();
+
+    final Map<String, double> revenueByFuel = {};
+    final Map<String, double> litersByFuel = {};
+
+    for (final r in records) {
+      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
+      final sales = (payload['sales'] as List? ?? []);
+
+      for (final s in sales) {
+        var fuel = s['fuelType'] as String;
+        if (fuel == 'LPG') fuel = 'Gas';
+
+        final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
+        final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
+
+        revenueByFuel[fuel] = (revenueByFuel[fuel] ?? 0.0) + amount;
+        litersByFuel[fuel] = (litersByFuel[fuel] ?? 0.0) + liters;
+      }
+    }
+
+    final result = revenueByFuel.keys.map((fuel) {
+      return FuelPerformance(
+        fuelType: fuel,
+        revenue: revenueByFuel[fuel] ?? 0.0,
+        liters: litersByFuel[fuel] ?? 0.0,
+      );
+    }).toList();
+
+    result.sort((a, b) => b.revenue.compareTo(a.revenue));
+    return result;
+  }
+
+
+
 }
