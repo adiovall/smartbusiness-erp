@@ -57,4 +57,17 @@ class SettlementRepo {
     );
     return rows.map(SettlementRecord.fromJson).toList();
   }
+
+  Future<int> countToday() async {
+    final db = await AppDatabase.instance;
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).toIso8601String();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM settlements WHERE date BETWEEN ? AND ?',
+      [start, end],
+    );
+    return (result.first['count'] as int?) ?? 0;
+  }
 }

@@ -55,7 +55,7 @@ class _ExpenseTabState extends State<ExpenseTab> {
   void initState() {
     super.initState();
     Services.expense.addListener(_refresh);
-    _load();   // ← changed
+    _load();  
   }
 
   Future<void> _load() async {
@@ -455,12 +455,11 @@ class _ExpenseTabState extends State<ExpenseTab> {
                 ),
               ),
               const SizedBox(width: 12),
+              // Find in expense_tab.dart's build():
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: allExpenses.isEmpty ? null : _submitExpenses,// Always ON
-                  label: Text(
-                    allExpenses.isEmpty ? 'Submit (0)' : 'Submit (${allExpenses.length})',
-                  ),
+                  onPressed: drafts.isEmpty ? null : _submitExpenses,
+                  label: const Text('Submit'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: drafts.isEmpty ? Colors.grey : Colors.green,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

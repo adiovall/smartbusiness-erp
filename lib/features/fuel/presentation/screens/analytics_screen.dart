@@ -1,5 +1,9 @@
 // lib/features/fuel/presentation/screens/analytics_screen.dart
 
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -7,6 +11,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/services/analytics_service.dart';
 import '../../../../core/services/reconciliation_service.dart';
+import '../../../../core/services/csv_import_service.dart';
 
 const panelBg = Color(0xFF0f172a);
 const panelBg2 = Color(0xFF111827);
@@ -96,6 +101,86 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     });
   }
 
+  Future<void> _importCsv() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+
+    if (result == null || result.files.single.path == null) return;
+
+    final file = File(result.files.single.path!);
+    final content = await file.readAsString();
+
+    final importResult = await Services.csvImport.importCsv(content);
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: const Color(0xFF020617),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Colors.white, width: 1),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Import Complete',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              const SizedBox(height: 16),
+              Text('Rows processed: ${importResult.rowsProcessed}',
+                  style: const TextStyle(color: Colors.white70)),
+              Text('Imported: ${importResult.rowsImported}',
+                  style: const TextStyle(color: Colors.greenAccent)),
+              Text('Skipped: ${importResult.rowsSkipped}',
+                  style: const TextStyle(color: Colors.amber)),
+              if (importResult.warnings.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('Details:', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: importResult.warnings
+                          .map((w) => Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text('• $w',
+                                    style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Done'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // Refresh everything so the newly imported data shows up immediately.
+    _loadTrend();
+    _loadAvailableDates();
+    _loadReconciliation();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -130,6 +215,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           const Text(
             'Analytics',
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          const Spacer(),
+          OutlinedButton.icon(
+            onPressed: _importCsv,
+            icon: const Icon(Icons.upload_file, size: 18),
+            label: const Text('Import Historical Data'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.orange,
+              side: const BorderSide(color: Colors.orange),
+            ),
           ),
         ],
       ),
@@ -296,22 +391,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
             ),
           ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              getTitlesWidget: (value, meta) {
-                final idx = value.toInt();
-                if (idx < 0 || idx >= _trend.length) return const SizedBox.shrink();
-                final d = DateTime.tryParse(_trend[idx].businessDate);
-                final label = d != null ? DateFormat('MMM d').format(d) : '';
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(label, style: const TextStyle(color: textSecondary, fontSize: 10)),
-                );
-              },
-            ),
+         bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: (_trend.length / 8).ceil().clamp(1, _trend.length).toDouble(),
+            getTitlesWidget: (value, meta) {
+              final idx = value.round();
+              if (idx < 0 || idx >= _trend.length) return const SizedBox.shrink();
+
+              final d = DateTime.tryParse(_trend[idx].businessDate);
+              final label = d != null ? DateFormat('MMM d').format(d) : '';
+              return Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(label, style: const TextStyle(color: textSecondary, fontSize: 10)),
+              );
+            },
           ),
+        ),
         ),
         borderData: FlBorderData(show: false),
         lineBarsData: [
@@ -647,9 +744,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 30,
+              interval: (data.length / 8).ceil().clamp(1, data.length).toDouble(),
               getTitlesWidget: (value, meta) {
-                final idx = value.toInt();
+                final idx = value.round();
                 if (idx < 0 || idx >= data.length) return const SizedBox.shrink();
+
                 final d = DateTime.tryParse(data[idx].businessDate);
                 final label = d != null ? DateFormat('MMM d').format(d) : '';
                 return Padding(

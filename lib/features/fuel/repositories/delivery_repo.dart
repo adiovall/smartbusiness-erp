@@ -185,24 +185,36 @@ class DeliveryRepo {
   }
 
   Future<List<DeliveryRecord>> fetchAllForBusinessDate(String businessDate) async {
-  final db = await AppDatabase.instance;
-  final rows = await db.query(
-    'deliveries',
-    where: 'businessDate = ?',
-    whereArgs: [businessDate],
-    orderBy: 'date DESC',
-  );
-  return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
-}
-
-Future<void> archiveForBusinessDate(String businessDate) async {
     final db = await AppDatabase.instance;
-    await db.update(
+    final rows = await db.query(
       'deliveries',
-      {'isArchived': 1},
       where: 'businessDate = ?',
       whereArgs: [businessDate],
+      orderBy: 'date DESC',
     );
+    return rows.map((r) => DeliveryRecord.fromJson(r)).toList();
+  }
+
+  Future<void> archiveForBusinessDate(String businessDate) async {
+      final db = await AppDatabase.instance;
+      await db.update(
+        'deliveries',
+        {'isArchived': 1},
+        where: 'businessDate = ?',
+        whereArgs: [businessDate],
+      );
+  }
+
+  Future<int> countTodaySubmitted() async {
+      final db = await AppDatabase.instance;
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month, now.day).toIso8601String();
+      final end = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM deliveries WHERE date BETWEEN ? AND ? AND isSubmitted = 1 AND isArchived = 0',
+        [start, end],
+      );
+      return (result.first['count'] as int?) ?? 0;
   }
 
   

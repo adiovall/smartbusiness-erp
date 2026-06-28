@@ -179,4 +179,16 @@ class ExpenseRepo {
   return (result.first['total'] as num?)?.toDouble() ?? 0.0;
 
   }
+  Future<int> countTodaySubmitted() async {
+    final db = await AppDatabase.instance;
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).toIso8601String();
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM expenses WHERE date BETWEEN ? AND ? AND (isSubmitted = 1 OR isLocked = 1) AND isArchived = 0',
+      [start, end],
+    );
+    return (result.first['count'] as int?) ?? 0;
+  }
+
 }

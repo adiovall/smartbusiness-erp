@@ -36,6 +36,13 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus = {};
   final Map<String, bool> daySentStatus = {};
 
+  int todaySettlementCount = 0;
+  int todaySaleCount = 0;
+  int todayDeliveryCount = 0;
+  int todayExpenseCount = 0;
+
+  bool settlementInProgress = false;
+
   bool _loading = true;
 
   // ✅ Needed for horizontal scroll when screen is compressed
@@ -48,44 +55,58 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   String _money(num v) => _moneyFmt.format(v.round());
 
   @override
-  void initState() {
-    super.initState();
-    tabController = TabController(length: 5, vsync: this);
-
-    // listen to tank updates (for tank widget)
-    Services.tank.addListener(_onTankChanged);
-
-    _initializeData(); 
-
-    Future.microtask(() async {
-
-      // Load today's totals
-      final salesTotal = await Services.saleRepo.getTodayTotalAmount();
-      final expenseTotal = Services.expense.todayExpenseTotal;
-
-      await _loadWeeklyFromDayEntryCache();
-
-      if (!mounted) return;
-      setState(() {
-        todaysSales = salesTotal;
-        todaysExpense = expenseTotal;
-        _loading = false;
+    void initState() {
+      super.initState();
+      tabController = TabController(length: 5, vsync: this);
+    
+      // listen to tank updates (for tank widget)
+      Services.tank.addListener(_onTankChanged);
+      Services.sale.addListener(_onDraftsChanged);
+      Services.delivery.addListener(_onDraftsChanged);
+      Services.expense.addListener(_onDraftsChanged);
+      Services.debt.addListener(_onDraftsChanged);
+    
+      _initializeData();
+    
+      Future.microtask(() async {
+        // Load today's totals
+        final salesTotal = await Services.saleRepo.getTodayTotalAmount();
+        final expenseTotal = Services.expense.todayExpenseTotal;
+    
+        await _loadWeeklyFromDayEntryCache();
+    
+        if (!mounted) return;
+        setState(() {
+          todaysSales = salesTotal;
+          todaysExpense = expenseTotal;
+          _loading = false;
+        });
       });
-    });
-  }
-
-  void _onTankChanged() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    Services.tank.removeListener(_onTankChanged);
-    tabController.dispose();
-    _mainHScroll.dispose();
-    _summaryHScroll.dispose();
-    super.dispose();
-  }
+    }
+    
+    void _onTankChanged() {
+      if (mounted) setState(() {});
+    }
+    
+    // ✅ NEW: proper class-level method, not a local function inside initState().
+    // This is what makes it reachable from dispose() too.
+    void _onDraftsChanged() {
+      if (mounted) setState(() {});
+    }
+    
+    @override
+    void dispose() {
+      Services.tank.removeListener(_onTankChanged);
+      Services.sale.removeListener(_onDraftsChanged);
+      Services.delivery.removeListener(_onDraftsChanged);
+      Services.expense.removeListener(_onDraftsChanged);
+      Services.debt.removeListener(_onDraftsChanged);
+    
+      tabController.dispose();
+      _mainHScroll.dispose();
+      _summaryHScroll.dispose();
+      super.dispose();
+    }
 
   // =====================
   // DATE HELPERS
@@ -132,7 +153,15 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
   todaysSales = await Services.sale.todayTotalAmount(includeDraft: false);
   todaysExpense = Services.expense.todayExpenseTotal;
-  todaysDelivery = await Services.delivery.todayTotalAmount(); // ← use full total
+  todaysDelivery = await Services.delivery.todayTotalAmount(); 
+  
+  todaySaleCount = await Services.saleRepo.countTodaySubmitted();
+  todayDeliveryCount = await Services.deliveryRepo.countTodaySubmitted();
+  todayExpenseCount = await Services.expenseRepo.countTodaySubmitted();
+  todaySettlementCount = await Services.settlement.todaySubmittedCount;
+
+
+  
 
   await _loadWeeklyFromDayEntryCache();
 
@@ -744,12 +773,12 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                 child: TabBar(
                   controller: tabController,
                   labelColor: Colors.green,
-                  tabs: const [
-                    Tab(text: 'Sale'),
-                    Tab(text: 'Delivery'),
-                    Tab(text: 'Expense'),
-                    Tab(text: 'Settlement'),
-                    Tab(text: 'External'),
+                  tabs: [
+                    _tabWithDot('Sale', Services.sale.todayDrafts.isNotEmpty),
+                    _tabWithDot('Delivery', Services.delivery.todayDrafts.isNotEmpty),
+                    _tabWithDot('Expense', Services.expense.todayDrafts.isNotEmpty),
+                    _tabWithDot('Settlement', Services.debt.allDebts.any((d) => !d.settled)),
+                    const Tab(text: 'External'),
                   ],
                 ),
               ),
@@ -804,12 +833,18 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
         // MIDDLE: WEEKLY SUMMARY
         Expanded(
-            flex: 1,
-            child: WeeklySummaryPerfect(
-              weeklyStatus: weeklyStatus,
-              daySentStatus: daySentStatus,
-            ),
+          flex: 1,
+          child: Column(
+            children: [
+              WeeklySummaryPerfect(
+                weeklyStatus: weeklyStatus,
+                daySentStatus: daySentStatus,
+              ),
+              const SizedBox(height: 16),
+              _buildDailySubmitCard(),
+            ],
           ),
+        ),
 
         const SizedBox(width: 16),
 
@@ -819,6 +854,28 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           child: TankLevelsPerfect(),
         ),
       ],
+    );
+  }
+
+  Widget _tabWithDot(String label, bool hasDraft) {
+    return Tab(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          if (hasDraft) ...[
+            const SizedBox(width: 6),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: Colors.amber,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -855,4 +912,50 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       ),
     );
   }
+
+  Widget _buildDailySubmitCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0f172a),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF1f2937)),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Daily Submit',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
+          ),
+          const SizedBox(height: 10),
+          _submitCountRow('Sale', todaySaleCount),
+          _submitCountRow('Delivery', todayDeliveryCount),
+          _submitCountRow('Expense', todayExpenseCount),
+          _submitCountRow('Settlement', todaySettlementCount),
+        ],
+      ),
+    );
+  }
+
+  Widget _submitCountRow(String label, int count) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(
+            '$count',
+            style: TextStyle(
+              color: count > 0 ? Colors.greenAccent : Colors.white38,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 }

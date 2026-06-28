@@ -65,7 +65,8 @@ class OutstandingItem {
 
 class SettlementTab extends StatefulWidget {
   final VoidCallback onSubmitted;
-  const SettlementTab({super.key, required this.onSubmitted});
+  final ValueChanged<bool>? onProgressChanged;   // ← ADD
+  const SettlementTab({super.key, required this.onSubmitted, this.onProgressChanged});
 
   @override
   State<SettlementTab> createState() => _SettlementTabState();
@@ -250,6 +251,11 @@ class _SettlementTabState extends State<SettlementTab> {
     } catch (e) {
       _toast('Error: $e');
     }
+  }
+
+  void _reportProgress() {
+    final inProgress = selectedDebt != null || totalPaid > 0;
+    widget.onProgressChanged?.call(inProgress);
   }
 
   void _undo() {

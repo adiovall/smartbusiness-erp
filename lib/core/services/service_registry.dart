@@ -10,6 +10,7 @@ import 'day_entry_service.dart';
 import 'outbox_service.dart';
 import 'analytics_service.dart';
 import 'reconciliation_service.dart';
+import 'csv_import_service.dart';
 
 import '../../features/fuel/repositories/delivery_repo.dart';
 import '../../features/fuel/repositories/debt_repo.dart';
@@ -36,16 +37,14 @@ class Services {
   static final dayEntryRepo = DayEntryRepo();
   static final settlementRepo = SettlementRepo();
   static final outboxRepo = OutboxRepo();
-  static final analytics = AnalyticsService(outboxRepo: outboxRepo);
-  static final reconciliation = ReconciliationService(outboxRepo: outboxRepo);
-  static late ExternalPaymentService external;
+ 
 
   // =====================
   // SERVICES
   // =====================
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
-
+  
   static final sale = SaleService(
     tankService: tank,
     saleRepo: saleRepo,
@@ -76,6 +75,13 @@ class Services {
     expenseService: expense,
     settlementService: settlement,
   );
+
+  
+  static final analytics = AnalyticsService(outboxRepo: outboxRepo);
+  static final reconciliation = ReconciliationService(outboxRepo: outboxRepo);
+  static final csvImport = CsvImportService(outboxRepo: outboxRepo, tankService: tank);
+  static late ExternalPaymentService external;
+  
 
   static final outbox = OutboxService(
     repo: outboxRepo,

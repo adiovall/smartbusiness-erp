@@ -141,4 +141,14 @@ class SaleRepo {
     );
   }
 
+  Future<int> countTodaySubmitted() async {
+    final db = await AppDatabase.instance;
+    final todayStr = DateTime.now().toIso8601String().substring(0, 10);
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM sales WHERE substr(date,1,10) = ? AND isSubmitted = 1 AND isArchived = 0',
+      [todayStr],
+    );
+    return (result.first['count'] as int?) ?? 0;
+  }
+
 }

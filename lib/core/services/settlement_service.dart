@@ -93,4 +93,6 @@ class SettlementService {
 
     return record;
   }
+
+  Future<int> get todaySubmittedCount => settlementRepo.countToday();
 }
