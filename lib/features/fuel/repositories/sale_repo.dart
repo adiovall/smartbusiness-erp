@@ -111,4 +111,34 @@ class SaleRepo {
       whereArgs: [businessDate],
     );
   }
+
+  Future<void> update(SaleRecord sale) async {
+    final db = await AppDatabase.instance;
+    await db.update('sales', sale.toJson(), where: 'id = ?', whereArgs: [sale.id]);
+  }
+
+  Future<List<SaleRecord>> fetchTodayDrafts() async {
+    final db = await AppDatabase.instance;
+    final todayStr = DateTime.now().toIso8601String().substring(0, 10);
+
+    final rows = await db.query(
+      'sales',
+      where: "substr(date, 1, 10) = ? AND isSubmitted = 0 AND isArchived = 0",
+      whereArgs: [todayStr],
+      orderBy: 'date DESC',
+    );
+
+    return rows.map(SaleRecord.fromJson).toList();
+  }
+
+  Future<void> markSubmittedByIds(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await AppDatabase.instance;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE sales SET isSubmitted = 1 WHERE id IN ($placeholders)',
+      ids,
+    );
+  }
+
 }

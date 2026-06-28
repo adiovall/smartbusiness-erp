@@ -89,31 +89,29 @@ class DeliveryService with ChangeNotifier {
     return list;
   }
 
-  /// Remaining credit in DB (submitted only, not archived)
   double totalCreditForSupplier(String supplier) {
     final s = supplier.trim().toLowerCase();
     return _deliveries
         .where((d) =>
-            d.isArchived == 0 &&
             d.isSubmitted == 1 &&
             d.supplier.toLowerCase() == s &&
             d.credit > 0)
         .fold(0.0, (sum, d) => sum + d.credit);
+    // removed: d.isArchived == 0
   }
 
-  /// Consume credit from oldest credit rows first (submitted only)
   Future<void> consumeCredit(String supplier, double amount) async {
     double remaining = amount;
     final s = supplier.trim().toLowerCase();
 
     final credits = _deliveries
         .where((d) =>
-            d.isArchived == 0 &&
             d.isSubmitted == 1 &&
             d.supplier.toLowerCase() == s &&
             d.credit > 0)
         .toList()
       ..sort((a, b) => a.date.compareTo(b.date)); // FIFO
+      
 
     for (final d in credits) {
       final used = d.credit >= remaining ? remaining : d.credit;

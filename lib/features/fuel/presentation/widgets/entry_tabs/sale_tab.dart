@@ -4,14 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
-
-import 'package:temp_fuel_app/core/models/sale_record.dart'; // ✅ FIX
+import 'package:temp_fuel_app/core/models/sale_record.dart';
 import 'package:temp_fuel_app/core/services/service_registry.dart';
 
 import '../../../domain/fuel_mapping.dart';
-import '../../../domain/sale_draft_engine.dart';
 
-/* ===================== COLORS ===================== */
 const panelBg = Color(0xFF0f172a);
 const textPrimary = Color(0xFFE5E7EB);
 const textSecondary = Color(0xFF9CA3AF);
@@ -32,43 +29,22 @@ class SaleTab extends StatefulWidget {
   State<SaleTab> createState() => _SaleTabState();
 }
 
-class PumpSale {
-  final int pumpNo;
-  final String fuel;
-  final double opening;
-  final double closing;
-  final double unitPrice;
+class ThousandsSeparatorInputFormatter extends TextInputFormatter {
+  ThousandsSeparatorInputFormatter({String locale = 'en_NG'})
+      : _format = NumberFormat.decimalPattern(locale);
+  final NumberFormat _format;
 
-  const PumpSale({
-    required this.pumpNo,
-    required this.fuel,
-    required this.opening,
-    required this.closing,
-    required this.unitPrice,
-  });
-
-  double get liters => (closing - opening).clamp(0.0, double.infinity).toDouble();
-  double get amount => liters * unitPrice;
-}
-
-  class ThousandsSeparatorInputFormatter extends TextInputFormatter {
-    ThousandsSeparatorInputFormatter({String locale = 'en_NG'})
-        : _format = NumberFormat.decimalPattern(locale);
-    final NumberFormat _format;
-
-    @override
-    TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-      final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
-      if (digits.isEmpty) return const TextEditingValue(text: '');
-      final formatted = _format.format(int.parse(digits));
-      return TextEditingValue(
-        text: formatted,
-        selection: TextSelection.collapsed(offset: formatted.length),
-      );
-    }
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return const TextEditingValue(text: '');
+    final formatted = _format.format(int.parse(digits));
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
   }
-
-
+}
 
 class _SaleTabState extends State<SaleTab> {
   final pumps = List.generate(12, (i) => 'Pump ${i + 1}');
@@ -84,8 +60,8 @@ class _SaleTabState extends State<SaleTab> {
   final posCtrl = TextEditingController();
   final shortageCommentCtrl = TextEditingController();
 
-  final List<PumpSale> recorded = [];
-  int? editingIndex;
+  String? editingId;
+  bool _loading = true;
 
   String _abbrFuel(String v) => FuelMapping.abbrFromLabel(v);
 
@@ -104,135 +80,152 @@ class _SaleTabState extends State<SaleTab> {
   double get liters => closing - opening;
   double get amountSold => liters * unitPrice;
 
-  double get totalSold => recorded.fold(0.0, (sum, p) => sum + p.amount);
+  List<SaleRecord> get recorded => Services.sale.todayDrafts;
+
+  double get totalSold => recorded.fold(0.0, (sum, p) => sum + p.totalAmount);
 
   double get cash => _parseNumber(cashCtrl.text);
   double get pos => _parseNumber(posCtrl.text);
   double get moneyAtHand => cash + pos;
   double get balance => moneyAtHand - totalSold;
 
-  double _availableLiters() {
-    return SaleDraftEngine.availableLiters(
-      selectedFuelLabel: fuel,
-      recorded: recorded,
-      editingIndex: editingIndex,
-    );
+  bool get canRecord => liters > 0 && unitPrice > 0;
+  bool get canSubmit => recorded.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    Services.sale.addListener(_refresh);
+    _load();
   }
 
-  bool get canRecord => liters > 0 && unitPrice > 0 && liters <= _availableLiters();
-  bool get canSubmit => recorded.isNotEmpty;
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    await Services.sale.refreshToday();
+    if (!mounted) return;
+    setState(() => _loading = false);
+  }
+
+  void _refresh() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    Services.sale.removeListener(_refresh);
+    oCtrl.dispose();
+    cCtrl.dispose();
+    priceCtrl.dispose();
+    cashCtrl.dispose();
+    posCtrl.dispose();
+    shortageCommentCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toast(String msg, {bool green = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: green ? Colors.green : Colors.red),
+    );
+  }
 
   void _clearPumpInputs() {
     oCtrl.clear();
     cCtrl.clear();
-    setState(() => editingIndex = null);
+    setState(() => editingId = null);
   }
 
-  void _undoAll() {
-    recorded.clear();
+  Future<void> _undoAll() async {
+    final drafts = List<SaleRecord>.from(recorded);
+    for (final d in drafts) {
+      try {
+        await Services.sale.deleteDraftSale(d.id);
+      } catch (_) {}
+    }
     _clearPumpInputs();
     cashCtrl.clear();
     posCtrl.clear();
     setState(() {});
   }
 
-  void _recordOrUpdatePump() {
+  Future<void> _recordOrUpdatePump() async {
     if (!canRecord) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Not enough fuel (${_availableLiters().toStringAsFixed(1)} L available)'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _toast('Enter valid opening, closing, and unit price');
       return;
     }
 
-    final pumpNo = int.tryParse(pump.replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
+    final pumpNo = pump.replaceAll(RegExp(r'[^0-9]'), '');
+    final fuelAbbr = _abbrFuel(fuel);
 
-    final sale = PumpSale(
-      pumpNo: pumpNo,
-      fuel: fuel,
-      opening: opening,
-      closing: closing,
-      unitPrice: unitPrice,
-    );
-
-    setState(() {
-      if (editingIndex != null) {
-        recorded[editingIndex!] = sale;
-        editingIndex = null;
+    try {
+      if (editingId != null) {
+        await Services.sale.editDraftSale(
+          id: editingId!,
+          pumpNo: pumpNo,
+          fuelType: fuelAbbr,
+          opening: opening,
+          closing: closing,
+          unitPrice: unitPrice,
+        );
+        _toast('Pump updated', green: true);
       } else {
-        recorded.add(sale);
-        
+        await Services.sale.recordDraftSale(
+          pumpNo: pumpNo,
+          fuelType: fuelAbbr,
+          opening: opening,
+          closing: closing,
+          unitPrice: unitPrice,
+        );
+        _toast('Pump recorded', green: true);
       }
-    });
 
-    _clearPumpInputs();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(editingIndex == null ? 'Pump recorded' : 'Pump updated'),
-        backgroundColor: Colors.green,
-      ),
-    );
+      _clearPumpInputs();
+    } catch (e) {
+      _toast('Error: $e');
+    }
   }
 
-  void _editPump(int index) {
-    final p = recorded[index];
+  void _editPump(SaleRecord p) {
+    if (p.isSubmitted) return;
     setState(() {
-      editingIndex = index;
+      editingId = p.id;
       pump = 'Pump ${p.pumpNo}';
-      fuel = p.fuel;
+      fuel = FuelMapping.labelFromAbbr(p.fuelType);
       oCtrl.text = p.opening.toStringAsFixed(0);
       cCtrl.text = p.closing.toStringAsFixed(0);
       priceCtrl.text = p.unitPrice.toStringAsFixed(0);
     });
   }
 
-  void _deletePump(int index) {
-    setState(() {
-      if (editingIndex == index) {
-        editingIndex = null;
-        _clearPumpInputs();
-      }
-      recorded.removeAt(index);
-    });
-  }
-
-  Future<void> _persistSalesToDb() async {
-    for (int i = 0; i < recorded.length; i++) {
-      final p = recorded[i];
-
-      final sale = SaleRecord(
-        id: '${DateTime.now().microsecondsSinceEpoch}_$i',
-        date: DateTime.now(),
-        pumpNo: p.pumpNo.toString(),
-        fuelType: _abbrFuel(p.fuel), // PMS/AGO/DPK/GAS
-        opening: p.opening,
-        closing: p.closing,
-        liters: p.liters,
-        unitPrice: p.unitPrice,
-      );
-
-      await Services.saleRepo.insert(sale);
-
-      await Services.saleRepo.insert(sale);
+  Future<void> _deletePump(SaleRecord p) async {
+    if (p.isSubmitted) return;
+    try {
+      await Services.sale.deleteDraftSale(p.id);
+      if (editingId == p.id) _clearPumpInputs();
+      _toast('Deleted', green: true);
+    } catch (e) {
+      _toast('Error: $e');
     }
   }
 
   Future<void> _submitWithBalanceCheck() async {
-    // EXACT PAY
+    final drafts = List<SaleRecord>.from(recorded);
+    if (drafts.isEmpty) return;
+
+    final totalToReport = totalSold; 
+
     if (balance.abs() < 0.01) {
-      await _applyTankConsumption();
-      await _persistSalesToDb();
-      widget.onSaleRecorded(totalSold);
+      await Services.sale.submitDraftSales(drafts);
+      widget.onSaleRecorded(totalToReport);
       widget.onDraftMarked();
-      _undoAll();
+      cashCtrl.clear();
+      posCtrl.clear();
       shortageCommentCtrl.clear();
+      setState(() {});
       return;
     }
 
-    // OVERPAY -> create credit note (your logic)
     if (balance > 0) {
       final bool? createCredit = await showDialog<bool>(
         context: context,
@@ -252,7 +245,6 @@ class _SaleTabState extends State<SaleTab> {
 
       if (createCredit != true) return;
     } else {
-      // SHORTAGE -> record expense lock
       final shortage = -balance;
 
       final bool? recordShortage = await showDialog<bool>(
@@ -298,23 +290,19 @@ class _SaleTabState extends State<SaleTab> {
         category: 'Sales Shortage',
         comment: shortageCommentCtrl.text.trim(),
         isLocked: true,
-        isSubmitted: false, // ✅ make it final
+        isSubmitted: false,
         source: 'Sales',
       );
-
     }
 
-    await _applyTankConsumption();
-    await _persistSalesToDb();
+    await Services.sale.submitDraftSales(drafts);
 
-    widget.onSaleRecorded(totalSold);
+    widget.onSaleRecorded(totalToReport);
     widget.onDraftMarked();
-    _undoAll();
+    cashCtrl.clear();
+    posCtrl.clear();
     shortageCommentCtrl.clear();
-  }
-
-  Future<void> _applyTankConsumption() async {
-    await SaleDraftEngine.applyTankConsumption(recorded);
+    setState(() {});
   }
 
   InputDecoration _input(String label, {String? suffix}) {
@@ -337,7 +325,7 @@ class _SaleTabState extends State<SaleTab> {
     );
   }
 
-    Widget _numberField(
+  Widget _numberField(
     String label,
     TextEditingController ctrl, {
     String? suffix,
@@ -354,7 +342,6 @@ class _SaleTabState extends State<SaleTab> {
       onChanged: (_) => setState(() {}),
     );
   }
-
 
   Widget _readonlyField({
     required String label,
@@ -419,6 +406,10 @@ class _SaleTabState extends State<SaleTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     final amountColor = canRecord ? Colors.green : Colors.red;
 
     return Padding(
@@ -426,7 +417,6 @@ class _SaleTabState extends State<SaleTab> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // LEFT
           Expanded(
             flex: 3,
             child: Column(
@@ -481,8 +471,8 @@ class _SaleTabState extends State<SaleTab> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: canRecord ? _recordOrUpdatePump : null,
-                        icon: Icon(editingIndex == null ? Icons.playlist_add : Icons.update),
-                        label: Text(editingIndex == null ? 'Record Pump' : 'Update Pump'),
+                        icon: Icon(editingId == null ? Icons.playlist_add : Icons.update),
+                        label: Text(editingId == null ? 'Record Pump' : 'Update Pump'),
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                       ),
                     ),
@@ -513,16 +503,13 @@ class _SaleTabState extends State<SaleTab> {
                       : ListView.separated(
                           itemCount: recorded.length,
                           separatorBuilder: (_, __) => const SizedBox(height: 10),
-                          itemBuilder: (_, i) => _tableRow(recorded[i], i),
+                          itemBuilder: (_, i) => _tableRow(recorded[i]),
                         ),
                 ),
               ],
             ),
           ),
-
           const SizedBox(width: 22),
-
-          // RIGHT
           Expanded(
             flex: 2,
             child: Column(
@@ -621,16 +608,20 @@ class _SaleTabState extends State<SaleTab> {
     );
   }
 
-  Widget _tableRow(PumpSale p, int index) {
-    final isEditing = editingIndex == index;
-    final fuelShort = _abbrFuel(p.fuel);
+  Widget _tableRow(SaleRecord p) {
+    final isEditing = editingId == p.id;
+    final isEditable = !p.isSubmitted;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: isEditing ? Colors.green.withOpacity(0.12) : Colors.white.withOpacity(0.03),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: isEditing ? Colors.green.withOpacity(0.5) : panelBorder),
+        border: Border.all(
+          color: isEditing
+              ? Colors.green.withOpacity(0.5)
+              : (p.isSubmitted ? Colors.redAccent.withOpacity(0.4) : panelBorder),
+        ),
       ),
       child: Row(
         children: [
@@ -641,7 +632,7 @@ class _SaleTabState extends State<SaleTab> {
           SizedBox(
             width: 52,
             child: Text(
-              fuelShort,
+              p.fuelType,
               style: const TextStyle(color: textPrimary, fontSize: 12, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
@@ -654,35 +645,29 @@ class _SaleTabState extends State<SaleTab> {
           ),
           Expanded(
             child: Text(
-              '₦${_formatMoney(p.amount)}',
+              '₦${_formatMoney(p.totalAmount)}',
               style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w700),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           SizedBox(
             width: 72,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                _miniIcon(icon: Icons.edit, color: textSecondary, onTap: () => _editPump(index)),
-                const SizedBox(width: 6),
-                _miniIcon(icon: Icons.delete, color: Colors.redAccent, onTap: () => _deletePump(index)),
-              ],
-            ),
+            child: isEditable
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _miniIcon(icon: Icons.edit, color: textSecondary, onTap: () => _editPump(p)),
+                      const SizedBox(width: 6),
+                      _miniIcon(icon: Icons.delete, color: Colors.redAccent, onTap: () => _deletePump(p)),
+                    ],
+                  )
+                : const Align(
+                    alignment: Alignment.centerRight,
+                    child: Icon(Icons.lock, color: Colors.grey, size: 18),
+                  ),
           ),
         ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    oCtrl.dispose();
-    cCtrl.dispose();
-    priceCtrl.dispose();
-    cashCtrl.dispose();
-    posCtrl.dispose();
-    shortageCommentCtrl.dispose();
-    super.dispose();
   }
 }

@@ -2,16 +2,24 @@ class FuelMapping {
   static const Map<String, String> _toTankKey = {
     'Petrol (PMS)': 'PMS',
     'Diesel (AGO)': 'AGO',
-    'Kerosene (HHK)': 'DPK', // tank uses DPK
-    'Gas (LPG)': 'Gas',      // tank uses Gas
+    'Kerosene (HHK)': 'DPK',
+    'Gas (LPG)': 'Gas',
 
-    // allow abbreviations too
     'PMS': 'PMS',
     'AGO': 'AGO',
     'HHK': 'DPK',
     'LPG': 'Gas',
     'DPK': 'DPK',
     'Gas': 'Gas',
+  };
+
+  // NEW: maps a stored abbreviation (PMS/AGO/DPK/Gas) back to the
+  // full dropdown label used in sale_tab.dart's `fuels` list.
+  static const Map<String, String> _toLabel = {
+    'PMS': 'Petrol (PMS)',
+    'AGO': 'Diesel (AGO)',
+    'DPK': 'Kerosene (HHK)',
+    'Gas': 'Gas (LPG)',
   };
 
   static String tankKey(String labelOrStored) {
@@ -29,5 +37,10 @@ class FuelMapping {
   static String abbrFromLabel(String labelOrStored) {
     final m = RegExp(r'\(([^)]+)\)').firstMatch(labelOrStored);
     return m?.group(1) ?? labelOrStored.split(' ').first;
+  }
+
+  // NEW
+  static String labelFromAbbr(String abbr) {
+    return _toLabel[abbr] ?? abbr;
   }
 }

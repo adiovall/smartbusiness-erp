@@ -55,7 +55,13 @@ class _ExpenseTabState extends State<ExpenseTab> {
   void initState() {
     super.initState();
     Services.expense.addListener(_refresh);
-    Services.expense.refreshToday();
+    _load();   // ← changed
+  }
+
+  Future<void> _load() async {
+    await Services.expense.refreshToday();
+    if (!mounted) return;
+    setState(() {});
   }
 
   @override

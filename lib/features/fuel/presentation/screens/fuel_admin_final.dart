@@ -758,8 +758,8 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                   controller: tabController,
                   children: [
                     SaleTab(
-                      onSaleRecorded: (total) {
-                        _addSale(total);
+                      onSaleRecorded: (total) async{
+                        await _initializeData();
                         _markDraft('Sale');
                       },
                       onDraftMarked: () => _markDraft('Sale'),

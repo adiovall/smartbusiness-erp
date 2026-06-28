@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 12,
+        version: 13,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -39,7 +39,8 @@ class AppDatabase {
         liters REAL NOT NULL,
         unitPrice REAL NOT NULL,
         totalAmount REAL NOT NULL,
-        isArchived INTEGER NOT NULL DEFAULT 0
+        isArchived INTEGER NOT NULL DEFAULT 0,
+        isSubmitted INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -210,6 +211,10 @@ class AppDatabase {
     if (oldVersion < 12) {
       await addCol("ALTER TABLE sales ADD COLUMN opening REAL NOT NULL DEFAULT 0");
       await addCol("ALTER TABLE sales ADD COLUMN closing REAL NOT NULL DEFAULT 0");
+    }
+
+    if (oldVersion < 13) {
+      await addCol("ALTER TABLE sales ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
     }
 
   }

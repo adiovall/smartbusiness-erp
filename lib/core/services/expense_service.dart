@@ -22,17 +22,25 @@ class ExpenseService with ChangeNotifier {
     notifyListeners();
   }
 
+  bool _refreshing = false;
+
   Future<void> refreshToday() async {
-    final rows = await repo.fetchAllTodayExpenses(); // only non-archived
+    if (_refreshing) return; // already in progress, let that one finish
+    _refreshing = true;
+    try {
+      final rows = await repo.fetchAllTodayExpenses();
 
-    final today = DateTime.now();
-    _expenses.removeWhere((e) =>
-        e.date.year == today.year &&
-        e.date.month == today.month &&
-        e.date.day == today.day);
+      final today = DateTime.now();
+      _expenses.removeWhere((e) =>
+          e.date.year == today.year &&
+          e.date.month == today.month &&
+          e.date.day == today.day);
 
-    _expenses.addAll(rows);
-    notifyListeners();
+      _expenses.addAll(rows);
+      notifyListeners();
+    } finally {
+      _refreshing = false;
+    }
   }
 
   Future<void> createDraftExpense({
