@@ -152,13 +152,14 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   await Services.dayEntry.getOrCreate(_businessDateKey(_now));
 
   todaysSales = await Services.sale.todayTotalAmount(includeDraft: false);
-  todaysExpense = Services.expense.todayExpenseTotal;
+  todaysExpense = Services.expense.todayFinalizedTotal;
   todaysDelivery = await Services.delivery.todayTotalAmount(); 
   
   todaySaleCount = await Services.saleRepo.countTodaySubmitted();
   todayDeliveryCount = await Services.deliveryRepo.countTodaySubmitted();
   todayExpenseCount = await Services.expenseRepo.countTodaySubmitted();
-  todaySettlementCount = await Services.settlement.todaySubmittedCount;
+  final todayAlreadySent = Services.dayEntry.isDayAlreadySent(_businessDateKey(_now));
+  todaySettlementCount = await Services.settlement.todaySubmittedCount(todayAlreadySent);
 
 
   

@@ -94,5 +94,6 @@ class SettlementService {
     return record;
   }
 
-  Future<int> get todaySubmittedCount => settlementRepo.countToday();
+  Future<int> todaySubmittedCount(bool todayAlreadySent) =>
+    settlementRepo.countTodayPending(todayAlreadySent);
 }

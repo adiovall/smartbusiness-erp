@@ -58,7 +58,9 @@ class SettlementRepo {
     return rows.map(SettlementRecord.fromJson).toList();
   }
 
-  Future<int> countToday() async {
+  Future<int> countTodayPending(bool todayAlreadySent) async {
+    if (todayAlreadySent) return 0;
+
     final db = await AppDatabase.instance;
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day).toIso8601String();

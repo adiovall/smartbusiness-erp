@@ -76,6 +76,12 @@ class Services {
     settlementService: settlement,
   );
 
+  static void _wireCallbacks() {
+    expense.onLockedExpenseCreated = (businessDate) {
+      dayEntry.markSubmitted(businessDate, 'Exp');
+    };
+  }
+
   
   static final analytics = AnalyticsService(outboxRepo: outboxRepo);
   static final reconciliation = ReconciliationService(outboxRepo: outboxRepo);
@@ -100,6 +106,8 @@ class Services {
   // INIT (APP START)
   // =====================
   static Future<void> init() async {
+    _wireCallbacks();
+    
     await tank.loadFromDb();
     await debt.loadFromDb();
     await delivery.loadFromDb();

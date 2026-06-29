@@ -9,6 +9,7 @@ import '../../features/fuel/repositories/expense_repo.dart';
 class ExpenseService with ChangeNotifier {
   final ExpenseRepo repo;
   final List<ExpenseRecord> _expenses = [];
+  void Function(String businessDate)? onLockedExpenseCreated;
 
   ExpenseService(this.repo);
 
@@ -75,9 +76,10 @@ class ExpenseService with ChangeNotifier {
     bool isSubmitted = true,
     DateTime? date,
   }) async {
+    final actualDate = date ?? DateTime.now();
     final expense = ExpenseRecord(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      date: date ?? DateTime.now(),
+      date: actualDate,
       amount: amount,
       category: category,
       comment: comment,
@@ -91,6 +93,10 @@ class ExpenseService with ChangeNotifier {
     _expenses.add(expense);
     await repo.insert(expense);
     notifyListeners();
+
+    if (isLocked) {
+      onLockedExpenseCreated?.call(expense.businessDate);
+    }
   }
 
   Future<void> createLockedExpense({
@@ -117,6 +123,8 @@ class ExpenseService with ChangeNotifier {
     _expenses.add(expense);
     await repo.insert(expense);
     notifyListeners();
+
+    onLockedExpenseCreated?.call(expense.businessDate);
   }
 
   Future<void> updateDraftExpense({
@@ -266,6 +274,18 @@ class ExpenseService with ChangeNotifier {
   // Full total for calculations (available sales, reports) - use this!
   double get todayExpenseTotal {
     return allTodayExpenses.fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  double get todayFinalizedTotal {
+    final t = DateTime.now();
+    return _expenses
+        .where((e) =>
+            e.date.year == t.year &&
+            e.date.month == t.month &&
+            e.date.day == t.day &&
+            !e.isArchived &&
+            (e.isSubmitted || e.isLocked))
+        .fold(0.0, (sum, e) => sum + e.amount);
   }
 
   // Async version if you need DB-direct (for delivery_tab _refreshNetSales)

@@ -1,6 +1,5 @@
 // lib/features/fuel/presentation/widgets/entry_tabs/delivery_tab.dart
 
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -35,11 +34,7 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
 }
 
 class DeliveryTab extends StatefulWidget {
-  /// Refresh UI after SUBMIT only (weekly summary / parent refresh)
   final VoidCallback onSubmitted;
-
-  /// Called ONLY on submit to update today's delivery card.
-  /// Parent should ADD this batch to today's total.
   final Function(double amount) onDeliveryRecorded;
 
   const DeliveryTab({
@@ -59,26 +54,19 @@ class _DeliveryTabState extends State<DeliveryTab> {
   String selectedFuel = 'PMS';
   String source = 'External';
 
-  final supplierCtrl = TextEditingController(); // logic controller
-  TextEditingController? _supplierAutoCtrl; // UI controller from Autocomplete
+  final supplierCtrl = TextEditingController();
+  TextEditingController? _supplierAutoCtrl;
 
   final litersCtrl = TextEditingController();
   final costCtrl = TextEditingController();
 
-  final paidCtrl = TextEditingController(); // single mode
-  final salesCtrl = TextEditingController(); // split mode
-  final externalCtrl = TextEditingController(); // split mode
+  final paidCtrl = TextEditingController();
+  final salesCtrl = TextEditingController();
+  final externalCtrl = TextEditingController();
 
   bool useOverpaid = false;
 
-  double supplierOverpaidAvailable = 0.0; // remaining available (after drafts reserve)
-  double creditUsedPreview = 0.0;
-
-  // baseline cash values to restore when toggle OFF
-  double _basePaidSingle = 0.0;
-  double _basePaidSales = 0.0;
-  double _basePaidExternal = 0.0;
-  String _baseSource = 'External';
+  double supplierOverpaidAvailable = 0.0;
 
   String? editingId;
   double _editingOldSalesPaid = 0.0;
@@ -87,11 +75,9 @@ class _DeliveryTabState extends State<DeliveryTab> {
   List<core.DeliveryRecord> _drafts = [];
   bool _loading = true;
 
-  // net sales
   bool _refreshingNet = false;
   double _todayNetSales = 0.0;
 
-  // supplier suggestions
   List<String> supplierSuggestions = [];
   bool _loadingSuppliers = true;
 
@@ -112,6 +98,16 @@ class _DeliveryTabState extends State<DeliveryTab> {
       showSplit ? _num(externalCtrl) : (source == 'External' ? _num(paidCtrl) : 0.0);
 
   double get amountPaid => showSplit ? (salesPaid + externalPaid) : _num(paidCtrl);
+
+  /// How much overpaid credit is being applied right now — full
+  /// available amount if toggled on, zero otherwise. No partial use.
+  double get creditUsedAmount => useOverpaid ? supplierOverpaidAvailable : 0.0;
+
+  /// Grand total of everything being put toward this delivery —
+  /// overpaid + whatever's typed into Sales/External. Nothing here is
+  /// auto-calculated; this just sums what's already entered so the
+  /// person can see whether it matches Total Cost before recording.
+  double get grandTotal => amountPaid + creditUsedAmount;
 
   double get totalLiters => _drafts.fold(0.0, (sum, r) => sum + r.liters);
   double get totalCost => _drafts.fold(0.0, (sum, r) => sum + r.totalCost);
@@ -138,10 +134,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
     supplierCtrl.addListener(_refreshOverpaidForSupplier);
 
-    costCtrl.addListener(() {
-      if (useOverpaid) _applyOverpaidFirstAndRebalance();
-    });
-
     Services.expense.addListener(_onExpensesChanged);
   }
 
@@ -150,7 +142,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
     _refreshNetSales();
   }
 
-  /// ✅ ALWAYS refresh service + take drafts from service
   Future<void> _loadDraftToday() async {
     setState(() => _loading = true);
 
@@ -190,12 +181,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
   Future<void> _refreshNetSales() async {
     setState(() => _refreshingNet = true);
 
-    // committed + draft (as you designed)
     final sales = await Services.sale.todayTotalAmount(includeDraft: true);
-
-    // expense total from service (draft + submitted today)
     final exp = Services.expense.todayExpenseTotal;
-
     final net = sales - exp;
 
     if (!mounted) return;
@@ -212,7 +199,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
     return available < 0 ? 0.0 : available;
   }
 
-  // reserve credit used by drafts so available reduces immediately
   double _draftCreditUsedForSupplier(String supplier, {String? excludeId}) {
     final s = supplier.toLowerCase();
     return _drafts
@@ -222,11 +208,11 @@ class _DeliveryTabState extends State<DeliveryTab> {
   }
 
   double _availableSupplierCredit(String supplier) {
-    final base = Services.delivery.totalCreditForSupplier(supplier);
-    final reserved = _draftCreditUsedForSupplier(supplier, excludeId: editingId);
-    final available = base - reserved + (editingId != null ? _editingOldCreditUsed : 0.0);
-    return available < 0 ? 0.0 : available;
-  }
+  final base = Services.delivery.totalCreditForSupplier(supplier);
+  final reserved = _draftCreditUsedForSupplier(supplier, excludeId: editingId);
+  final available = base - reserved;
+  return available < 0 ? 0.0 : available;
+}
 
   void _toast(String msg, {bool green = false}) {
     if (!mounted) return;
@@ -254,12 +240,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
     useOverpaid = false;
     supplierOverpaidAvailable = 0.0;
-    creditUsedPreview = 0.0;
-
-    _basePaidSingle = 0.0;
-    _basePaidSales = 0.0;
-    _basePaidExternal = 0.0;
-    _baseSource = source;
 
     editingId = null;
     _editingOldSalesPaid = 0.0;
@@ -269,7 +249,9 @@ class _DeliveryTabState extends State<DeliveryTab> {
   }
 
   // ============================
-  // OVERPAID: STRICT FIRST
+  // OVERPAID: just look up availability — no auto-apply / rebalance.
+  // Toggling it on simply ADDS the full available amount to the
+  // grand total; it never fills in or changes Sales/External fields.
   // ============================
   void _refreshOverpaidForSupplier() {
     final sup = supplierCtrl.text.trim();
@@ -278,7 +260,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
       setState(() {
         supplierOverpaidAvailable = 0.0;
         useOverpaid = false;
-        creditUsedPreview = 0.0;
       });
       return;
     }
@@ -289,73 +270,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
       supplierOverpaidAvailable = available;
       if (available <= 0.0) {
         useOverpaid = false;
-        creditUsedPreview = 0.0;
-      }
-    });
-
-    if (useOverpaid) _applyOverpaidFirstAndRebalance();
-  }
-
-  void _captureBasePayments() {
-    _baseSource = source;
-
-    if (showSplit) {
-      _basePaidSales = _num(salesCtrl);
-      _basePaidExternal = _num(externalCtrl);
-      _basePaidSingle = 0.0;
-    } else {
-      _basePaidSingle = _num(paidCtrl);
-      _basePaidSales = 0.0;
-      _basePaidExternal = 0.0;
-    }
-  }
-
-  void _restoreBasePayments() {
-    if (_baseSource != source) {
-      paidCtrl.clear();
-      salesCtrl.clear();
-      externalCtrl.clear();
-      return;
-    }
-
-    if (showSplit) {
-      salesCtrl.text = _fmtInt(_basePaidSales);
-      externalCtrl.text = _fmtInt(_basePaidExternal);
-      paidCtrl.clear();
-    } else {
-      paidCtrl.text = _fmtInt(_basePaidSingle);
-      salesCtrl.clear();
-      externalCtrl.clear();
-    }
-  }
-
-  /// STRICT RULE:
-  /// 1) Use overpaid FIRST (up to cost)
-  /// 2) Remaining cost is paid by cash fields
-  /// 3) If split: Sales first (bounded by available sales), then External
-  void _applyOverpaidFirstAndRebalance() {
-    final cost = _num(costCtrl);
-    if (cost <= 0) return;
-
-    final maxCredit = supplierOverpaidAvailable;
-    final usedCredit = useOverpaid ? min(maxCredit, cost) : 0.0;
-    final remaining = max(0.0, cost - usedCredit);
-
-    final maxSales = _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
-
-    setState(() {
-      creditUsedPreview = usedCredit;
-
-      if (source == 'Sales') {
-        final s = min(remaining, maxSales);
-        paidCtrl.text = _fmtInt(s);
-      } else if (source == 'External') {
-        paidCtrl.text = _fmtInt(remaining);
-      } else {
-        final s = min(remaining, maxSales);
-        final e = max(0.0, remaining - s);
-        salesCtrl.text = _fmtInt(s);
-        externalCtrl.text = _fmtInt(e);
       }
     });
   }
@@ -440,14 +354,9 @@ class _DeliveryTabState extends State<DeliveryTab> {
       }
 
       useOverpaid = r.creditUsed > 0;
-      creditUsedPreview = r.creditUsed;
 
       supplierOverpaidAvailable = _availableSupplierCredit(r.supplier);
-
-      _captureBasePayments();
     });
-
-    if (useOverpaid) _applyOverpaidFirstAndRebalance();
   }
 
   Future<void> _deleteDraft(core.DeliveryRecord r) async {
@@ -472,7 +381,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
     try {
       await Services.delivery.deleteDraftDelivery(r.id);
 
-      // ✅ refresh + take drafts from service (no local guessing)
       await Services.delivery.refreshToday();
 
       if (!mounted) return;
@@ -502,8 +410,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
     if (!_passesTankCapacityCheck(newFuelType: selectedFuel, newLiters: liters)) return;
 
-    if (useOverpaid) _applyOverpaidFirstAndRebalance();
-
     final maxSales = _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
 
     if (_usesSalesMoney && salesPaid > maxSales + 0.01) {
@@ -511,8 +417,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
       return;
     }
 
-    final maxCredit = supplierOverpaidAvailable;
-    final usedCredit = useOverpaid ? min(maxCredit, cost) : 0.0;
+    final usedCredit = useOverpaid ? supplierOverpaidAvailable : 0.0;
 
     try {
       if (editingId == null) {
@@ -542,7 +447,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
         );
       }
 
-      // ✅ refresh + take drafts from service
       await Services.delivery.refreshToday();
 
       if (!mounted) return;
@@ -559,7 +463,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
       _toast(editingId == null ? 'Recorded (Draft). Editable until Submit.' : 'Updated.', green: true);
 
-      // IMPORTANT: do NOT mark weekly summary on draft save
       _clearInputsOnly();
 
       _refreshNetSales();
@@ -585,12 +488,11 @@ class _DeliveryTabState extends State<DeliveryTab> {
 
       widget.onDeliveryRecorded(batchTotalCost);
 
-      // ✅ refresh service + rebuild drafts from service
       await Services.delivery.refreshToday();
 
       if (!mounted) return;
       setState(() {
-        _drafts = Services.delivery.todayDrafts; // should now be empty
+        _drafts = Services.delivery.todayDrafts;
       });
 
       _clearInputsOnly();
@@ -675,6 +577,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
           FilteringTextInputFormatter.digitsOnly,
           ThousandsSeparatorInputFormatter(locale: 'en_NG'),
         ],
+        onChanged: (_) => setState(() {}), // refresh grandTotal live as you type
         decoration: _input(label),
         style: const TextStyle(color: textPrimary),
       );
@@ -715,7 +618,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
       fieldViewBuilder: (_, ctrl, focus, __) {
         _supplierAutoCtrl = ctrl;
 
-        // keep UI field in sync if logic changed (edit / clear)
         if (ctrl.text != supplierCtrl.text) {
           ctrl.value = supplierCtrl.value;
         }
@@ -776,6 +678,8 @@ class _DeliveryTabState extends State<DeliveryTab> {
   @override
   Widget build(BuildContext context) {
     final maxSales = _availableSalesMoney(editingId: editingId, oldSalesPaid: _editingOldSalesPaid);
+    final cost = _num(costCtrl);
+    final totalMatchesCost = cost > 0 && (grandTotal - cost).abs() < 0.5;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -800,7 +704,6 @@ class _DeliveryTabState extends State<DeliveryTab> {
                 const SizedBox(height: 8),
                 _drop('Fuel Type', selectedFuel, fuels, (v) {
                   setState(() => selectedFuel = v!);
-                  if (useOverpaid) _applyOverpaidFirstAndRebalance();
                 }),
                 const SizedBox(height: 8),
                 Row(
@@ -811,13 +714,27 @@ class _DeliveryTabState extends State<DeliveryTab> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                const Text(
-                  'Payment',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: textPrimary,
-                  ),
+
+                // ===== PAYMENT SECTION =====
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Payment',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: textPrimary,
+                      ),
+                    ),
+                    if (_usesSalesMoney)
+                      Text(
+                        _refreshingNet
+                            ? 'Sales available: ...'
+                            : 'Sales available: ${money.format(maxSales)}',
+                        style: const TextStyle(color: textSecondary, fontSize: 11),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -830,10 +747,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
                           paidCtrl.clear();
                           salesCtrl.clear();
                           externalCtrl.clear();
-                          _captureBasePayments();
                         });
-
-                        if (useOverpaid) _applyOverpaidFirstAndRebalance();
                       }),
                     ),
                     const SizedBox(width: 8),
@@ -854,51 +768,58 @@ class _DeliveryTabState extends State<DeliveryTab> {
                   const SizedBox(height: 8),
                   _numField('External Amount (₦)', externalCtrl),
                 ],
-                const SizedBox(height: 10),
-                if (_usesSalesMoney)
-                  Text(
-                    _refreshingNet
-                        ? 'Sales available: ...'
-                        : 'Sales available: ${money.format(maxSales)}',
-                    style: const TextStyle(color: textSecondary, fontSize: 12),
-                  ),
+
                 if (supplierOverpaidAvailable > 0) ...[
                   const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
                         child: Text(
-                          'Overpaid available: ${money.format(supplierOverpaidAvailable)}',
-                          style: const TextStyle(color: textSecondary, fontSize: 12),
+                          useOverpaid
+                              ? 'Using overpaid: ${money.format(supplierOverpaidAvailable)}'
+                              : 'Overpaid available: ${money.format(supplierOverpaidAvailable)}',
+                          style: TextStyle(
+                            color: useOverpaid ? Colors.greenAccent : textSecondary,
+                            fontSize: 12,
+                            fontWeight: useOverpaid ? FontWeight.w600 : FontWeight.normal,
+                          ),
                         ),
                       ),
                       Transform.scale(
                         scale: 0.75,
                         child: Switch(
                           value: useOverpaid,
-                          onChanged: (v) {
-                            setState(() => useOverpaid = v);
-
-                            if (v) {
-                              _captureBasePayments();
-                              _applyOverpaidFirstAndRebalance();
-                            } else {
-                              setState(() {
-                                creditUsedPreview = 0.0;
-                                _restoreBasePayments();
-                              });
-                            }
-                          },
+                          onChanged: (v) => setState(() => useOverpaid = v),
                         ),
                       ),
                     ],
                   ),
                 ],
-                if (useOverpaid && creditUsedPreview > 0)
-                  Text(
-                    'Using overpaid: ${money.format(creditUsedPreview)}',
-                    style: const TextStyle(color: Colors.greenAccent, fontSize: 12),
+
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: inputBorder),
                   ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total', style: TextStyle(color: textSecondary, fontSize: 13)),
+                      Text(
+                        money.format(grandTotal),
+                        style: const TextStyle(
+                          color: textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
                 const SizedBox(height: 18),
                 Align(
                   alignment: Alignment.center,

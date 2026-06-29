@@ -220,17 +220,9 @@ class DeliveryService with ChangeNotifier {
   }
 
   Future<double> todayTotalAmount() async {
-  final now = DateTime.now();
-  final todayKey = DateFormat('yyyy-MM-dd').format(now);
-
-  // Sum ALL today's deliveries (drafts + submitted, not archived)
-  final allToday = await deliveryRepo.fetchAllTodayVisible();
-  double total = allToday.fold(0.0, (sum, r) => sum + r.totalCost);
-
-  print("Delivery total reloaded: $total"); // debug
-
-  return total;
-}
+    final submitted = await deliveryRepo.fetchTodaySubmitted();
+    return submitted.fold<double>(0.0, (sum, r) => sum + r.totalCost);
+  }
 
   Future<DeliveryRecord> editDraftDelivery({
     required String id,
@@ -256,10 +248,30 @@ class DeliveryService with ChangeNotifier {
     if (amountPaid < 0) throw Exception('Paid cannot be negative');
     if (creditUsed < 0) throw Exception('Credit used cannot be negative');
 
-    // IMPORTANT:
-    // You already adjusted tank in UI before saving. This service version
-    // does NOT auto reverse/redo tank on edit to avoid double adjustments.
-    // If you want tank deltas handled here, tell me and I’ll implement safely.
+    // Sync tank by DELTA between old and new liters, same approach as
+    // SaleService.editDraftSale(). If fuel type changed, reverse the old
+    // fuel type's addition entirely and apply the new one fresh.
+    if (fuelType != d.fuelType) {
+      tankService.removeFuel(d.fuelType, d.liters); // reverse old addition
+      final tank = tankService.getTank(fuelType);
+      if (tank != null && (tank.currentLevel + liters) > tank.capacity + 0.0001) {
+        // restore the reversal before throwing, so tank state stays correct
+        tankService.addFuel(d.fuelType, d.liters);
+        throw Exception('Delivery exceeds tank capacity for $fuelType. Update tank capacity first.');
+      }
+      tankService.addFuel(fuelType, liters);
+    } else {
+      final delta = liters - d.liters;
+      if (delta > 0) {
+        final tank = tankService.getTank(fuelType);
+        if (tank != null && (tank.currentLevel + delta) > tank.capacity + 0.0001) {
+          throw Exception('Delivery exceeds tank capacity. Update tank capacity first.');
+        }
+        tankService.addFuel(fuelType, delta);
+      } else if (delta < 0) {
+        tankService.removeFuel(fuelType, -delta);
+      }
+    }
 
     final effectivePaid = amountPaid + creditUsed;
     final diff = effectivePaid - totalCost;
@@ -270,6 +282,7 @@ class DeliveryService with ChangeNotifier {
     final updated = DeliveryRecord(
       id: d.id,
       date: d.date,
+      businessDate: d.businessDate,
       supplier: supplier.trim(),
       fuelType: fuelType,
       liters: liters,
@@ -293,6 +306,7 @@ class DeliveryService with ChangeNotifier {
     notifyListeners();
     return updated;
   }
+
 
   Future<void> deleteDraftDelivery(String id) async {
     final d = _deliveries.firstWhere((e) => e.id == id);
