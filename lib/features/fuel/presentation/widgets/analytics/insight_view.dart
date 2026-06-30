@@ -29,9 +29,16 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
   List<PumpPerformance> _pumpPerformance = [];
   bool _loadingFuelPerformance = true;
   List<FuelPerformance> _fuelPerformance = [];
-
   bool _loadingInsightTrend = true;
   List<DayAnalytics> _insightTrend = [];
+  bool _loadingTopSuppliers = true;
+  List<SupplierPerformance> _topSuppliers = [];
+
+  bool _loadingExpenseBreakdown = true;
+  List<ExpenseCategoryTotal> _expenseBreakdown = [];
+
+  bool _loadingDebtOverview = true;
+  List<DebtSummary> _debtOverview = [];
 
   @override
   void initState() {
@@ -39,6 +46,19 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     _loadPumpPerformance();
     _loadInsightTrend();
     _loadFuelPerformance();
+    _loadTopSuppliers();
+    _loadExpenseBreakdown();
+    _loadDebtOverview();
+  }
+
+
+ void _reloadAll() {
+    _loadPumpPerformance();
+    _loadInsightTrend();
+    _loadFuelPerformance();
+    _loadTopSuppliers();
+    _loadExpenseBreakdown();
+    _loadDebtOverview();
   }
 
   Map<String, String?> _computeInsightDateRange() {
@@ -60,6 +80,42 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       default:
         return {'from': null, 'to': null};
     }
+  }
+
+  Future<void> _loadTopSuppliers() async {
+  setState(() => _loadingTopSuppliers = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchTopSuppliers(
+        fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _topSuppliers = data;
+      _loadingTopSuppliers = false;
+    });
+  }
+
+  Future<void> _loadExpenseBreakdown() async {
+    setState(() => _loadingExpenseBreakdown = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchExpenseBreakdown(
+        fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _expenseBreakdown = data;
+      _loadingExpenseBreakdown = false;
+    });
+  }
+
+  Future<void> _loadDebtOverview() async {
+    setState(() => _loadingDebtOverview = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchDebtOverview(
+        fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _debtOverview = data;
+      _loadingDebtOverview = false;
+    });
   }
 
   Future<void> _loadPumpPerformance() async {
@@ -98,11 +154,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     });
   }
 
-  void _reloadAll() {
-    _loadPumpPerformance();
-    _loadInsightTrend();
-    _loadFuelPerformance();
-  }
+ 
 
   @override
   Widget build(BuildContext context) {
@@ -128,6 +180,258 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
               ],
             ),
           ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 300,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 2, child: _buildTopSuppliersSection()),
+                const SizedBox(width: 16),
+                Expanded(flex: 3, child: _buildExpenseBreakdownSection()),
+                const SizedBox(width: 16),
+                Expanded(flex: 2, child: _buildDebtOverviewSection()),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopSuppliersSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Top Suppliers',
+              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          const Text('by delivery value',
+              style: TextStyle(color: textSecondary, fontSize: 11)),
+          const SizedBox(height: 12),
+          if (_loadingTopSuppliers)
+            const Center(child: CircularProgressIndicator())
+          else if (_topSuppliers.isEmpty)
+            const Center(child: Text('No deliveries', style: TextStyle(color: textSecondary)))
+          else
+            ...(_topSuppliers.asMap().entries.map((entry) {
+              final i = entry.key;
+              final s = entry.value;
+              final maxVal = _topSuppliers.first.totalDeliveryValue;
+              final barWidth = maxVal > 0 ? s.totalDeliveryValue / maxVal : 0.0;
+              final colors = [Colors.orange, Colors.cyan, Colors.green, Colors.purpleAccent, Colors.redAccent];
+              final color = colors[i % colors.length];
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${i + 1}. ${s.supplier}',
+                            style: const TextStyle(color: textPrimary, fontSize: 12)),
+                        Text(moneyFmt.format(s.totalDeliveryValue),
+                            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: barWidth,
+                        minHeight: 6,
+                        backgroundColor: Colors.white.withOpacity(0.06),
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            })),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExpenseBreakdownSection() {
+    if (_loadingExpenseBreakdown) {
+      return Container(
+        decoration: BoxDecoration(color: panelBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: panelBorder)),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_expenseBreakdown.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(color: panelBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: panelBorder)),
+        child: const Center(child: Text('No expenses', style: TextStyle(color: textSecondary))),
+      );
+    }
+
+    final total = _expenseBreakdown.fold(0.0, (s, e) => s + e.amount);
+    final categoryColors = [
+      Colors.orange, Colors.cyan, Colors.green, Colors.purpleAccent,
+      Colors.redAccent, Colors.amber, Colors.teal, Colors.pinkAccent,
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Expense Breakdown',
+              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: PieChart(
+                    PieChartData(
+                      sections: _expenseBreakdown.asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final e = entry.value;
+                        final share = total > 0 ? (e.amount / total) * 100 : 0.0;
+                        final color = categoryColors[i % categoryColors.length];
+                        return PieChartSectionData(
+                          value: e.amount,
+                          color: color,
+                          title: share >= 8 ? '${share.toStringAsFixed(0)}%' : '',
+                          titleStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          radius: 55,
+                        );
+                      }).toList(),
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 28,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _expenseBreakdown.asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final e = entry.value;
+                        final share = total > 0 ? (e.amount / total) * 100 : 0.0;
+                        final color = categoryColors[i % categoryColors.length];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            children: [
+                              Container(width: 8, height: 8,
+                                  decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(e.category,
+                                    style: const TextStyle(color: textSecondary, fontSize: 10),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              Text('${share.toStringAsFixed(0)}%',
+                                  style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text('Total: ${moneyFmt.format(total)}',
+              style: const TextStyle(color: textSecondary, fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDebtOverviewSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Debt Overview',
+              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          const SizedBox(height: 12),
+          if (_loadingDebtOverview)
+            const Center(child: CircularProgressIndicator())
+          else if (_debtOverview.isEmpty)
+            const Center(child: Text('No debts', style: TextStyle(color: textSecondary)))
+          else
+            Expanded(
+              child: ListView.separated(
+                itemCount: _debtOverview.length,
+                separatorBuilder: (_, __) => const Divider(color: panelBorder, height: 1),
+                itemBuilder: (_, i) {
+                  final d = _debtOverview[i];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8, height: 8,
+                          decoration: BoxDecoration(
+                            color: d.settled ? Colors.green : Colors.redAccent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(d.supplier,
+                                  style: const TextStyle(color: textPrimary, fontSize: 12),
+                                  overflow: TextOverflow.ellipsis),
+                              Text(d.fuelType,
+                                  style: const TextStyle(color: textSecondary, fontSize: 10)),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(moneyFmt.format(d.amount),
+                                style: TextStyle(
+                                  color: d.settled ? Colors.green : Colors.redAccent,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                )),
+                            Text(d.settled ? 'Settled' : 'Unpaid',
+                                style: TextStyle(
+                                  color: d.settled ? Colors.green : Colors.redAccent,
+                                  fontSize: 10,
+                                )),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
         ],
       ),
     );
