@@ -27,6 +27,8 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
 
   bool _loadingPumpPerformance = true;
   List<PumpPerformance> _pumpPerformance = [];
+  bool _loadingFuelPerformance = true;
+  List<FuelPerformance> _fuelPerformance = [];
 
   bool _loadingInsightTrend = true;
   List<DayAnalytics> _insightTrend = [];
@@ -36,6 +38,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     super.initState();
     _loadPumpPerformance();
     _loadInsightTrend();
+    _loadFuelPerformance();
   }
 
   Map<String, String?> _computeInsightDateRange() {
@@ -71,6 +74,19 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     });
   }
 
+  Future<void> _loadFuelPerformance() async {
+    setState(() => _loadingFuelPerformance = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchFuelPerformance(
+      fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _fuelPerformance = data;
+      _loadingFuelPerformance = false;
+    });
+  }
+
+
   Future<void> _loadInsightTrend() async {
     setState(() => _loadingInsightTrend = true);
     final range = _computeInsightDateRange();
@@ -85,6 +101,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
   void _reloadAll() {
     _loadPumpPerformance();
     _loadInsightTrend();
+    _loadFuelPerformance();
   }
 
   @override
@@ -99,8 +116,183 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
           _buildKpiCards(),
           const SizedBox(height: 24),
           SizedBox(
-            height: 320,
-            child: _buildPumpChartSection(),
+            height: 340,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 3, child: _buildPumpChartSection()),
+                const SizedBox(width: 16),
+                Expanded(flex: 2, child: _buildTankLevelsSection()),
+                const SizedBox(width: 16),
+                Expanded(flex: 2, child: _buildFuelPerformanceSection()),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTankLevelsSection() {
+    final tanks = Services.tank.allTanks;
+    final fuelColors = {
+      'PMS': Colors.green,
+      'AGO': Colors.orange,
+      'DPK': Colors.cyan,
+      'Gas': Colors.purpleAccent,
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Tank Levels',
+            style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+          ...tanks.map((t) {
+            final p = t.percentage;
+            final color = p > 50
+                ? Colors.green
+                : p > 20
+                    ? Colors.orange
+                    : Colors.red;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(t.fuelType,
+                          style: const TextStyle(color: textPrimary, fontSize: 12, fontWeight: FontWeight.w600)),
+                      Text('${p.toInt()}%',
+                          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: p / 100,
+                      minHeight: 10,
+                      backgroundColor: Colors.white.withOpacity(0.06),
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${t.currentLevel.toStringAsFixed(0)} / ${t.capacity.toStringAsFixed(0)} L',
+                    style: const TextStyle(color: textSecondary, fontSize: 10),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFuelPerformanceSection() {
+    if (_loadingFuelPerformance) {
+      return Container(
+        decoration: BoxDecoration(
+          color: panelBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: panelBorder),
+        ),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_fuelPerformance.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: panelBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: panelBorder),
+        ),
+        child: const Center(
+          child: Text('No fuel data', style: TextStyle(color: textSecondary)),
+        ),
+      );
+    }
+
+    final totalRevenue = _fuelPerformance.fold(0.0, (s, f) => s + f.revenue);
+    final fuelColors = {
+      'PMS': Colors.green,
+      'AGO': Colors.orange,
+      'DPK': Colors.cyan,
+      'Gas': Colors.purpleAccent,
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Fuel Performance',
+            style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: PieChart(
+              PieChartData(
+                sections: _fuelPerformance.map((f) {
+                  final share = totalRevenue > 0 ? (f.revenue / totalRevenue) * 100 : 0.0;
+                  final color = fuelColors[f.fuelType] ?? Colors.grey;
+                  return PieChartSectionData(
+                    value: f.revenue,
+                    color: color,
+                    title: '${share.toStringAsFixed(0)}%',
+                    titleStyle: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                    radius: 55,
+                  );
+                }).toList(),
+                sectionsSpace: 2,
+                centerSpaceRadius: 28,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: _fuelPerformance.map((f) {
+              final color = fuelColors[f.fuelType] ?? Colors.grey;
+              final share = totalRevenue > 0 ? (f.revenue / totalRevenue) * 100 : 0.0;
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 8, height: 8,
+                      decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${f.fuelType} ${share.toStringAsFixed(0)}%',
+                    style: const TextStyle(color: textSecondary, fontSize: 10),
+                  ),
+                ],
+              );
+            }).toList(),
           ),
         ],
       ),
