@@ -12,8 +12,6 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.8
-  syncfusion_flutter_gauges: ^31.2.18
-  syncfusion_flutter_datepicker: ^31.2.18
   intl: ^0.20.2
   fl_chart: ^0.69.0
   csv: ^6.0.0

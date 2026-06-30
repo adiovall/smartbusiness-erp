@@ -31,15 +31,37 @@ class FuelPerformance {
   });
 }
 
+/// Aggregated sales performance for ONE pump number, across the
+/// selected date range.
+class PumpPerformance {
+  final String pumpNo;
+  final double revenue;
+  final double liters;
+
+  PumpPerformance({
+    required this.pumpNo,
+    required this.revenue,
+    required this.liters,
+  });
+}
+
+
+
 class AnalyticsService {
   final OutboxRepo outboxRepo;
 
   AnalyticsService({required this.outboxRepo});
 
-  Future<List<DayAnalytics>> fetchTrend() async {
+  Future<List<DayAnalytics>> fetchTrend({String? fromDate, String? toDate}) async {
     final records = await outboxRepo.fetchAll();
 
-    final list = records.map((r) {
+    final filtered = records.where((r) {
+      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+      return true;
+    }).toList();
+
+    final list = filtered.map((r) {
       final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
 
       final sales = (payload['sales'] as List? ?? []);
@@ -83,13 +105,19 @@ class AnalyticsService {
     return records.map((r) => r.businessDate).toList();
   }
 
-  Future<List<FuelPerformance>> fetchFuelPerformance() async {
+  Future<List<FuelPerformance>> fetchFuelPerformance({String? fromDate, String? toDate}) async {
     final records = await outboxRepo.fetchAll();
+
+    final filtered = records.where((r) {
+      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+      return true;
+    }).toList();
 
     final Map<String, double> revenueByFuel = {};
     final Map<String, double> litersByFuel = {};
 
-    for (final r in records) {
+    for (final r in filtered) {
       final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
       final sales = (payload['sales'] as List? ?? []);
 
@@ -116,6 +144,53 @@ class AnalyticsService {
     result.sort((a, b) => b.revenue.compareTo(a.revenue));
     return result;
   }
+
+  Future<List<PumpPerformance>> fetchPumpPerformance({String? fromDate, String? toDate}) async {
+    final records = await outboxRepo.fetchAll();
+
+    final filtered = records.where((r) {
+      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+      return true;
+    }).toList();
+
+    final Map<String, double> revenueByPump = {};
+    final Map<String, double> litersByPump = {};
+
+    for (final r in filtered) {
+      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
+      final sales = (payload['sales'] as List? ?? []);
+
+      for (final s in sales) {
+        final pump = (s['pumpNo'] as String?) ?? 'Unknown';
+        final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
+        final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
+
+        revenueByPump[pump] = (revenueByPump[pump] ?? 0.0) + amount;
+        litersByPump[pump] = (litersByPump[pump] ?? 0.0) + liters;
+      }
+    }
+
+    final result = revenueByPump.keys.map((pump) {
+      return PumpPerformance(
+        pumpNo: pump,
+        revenue: revenueByPump[pump] ?? 0.0,
+        liters: litersByPump[pump] ?? 0.0,
+      );
+    }).toList();
+
+    // Sort by pump number numerically where possible, so "Pump 1, 2, 3..."
+    // doesn't end up as "1, 10, 2, 3..." (string-sort gotcha).
+    result.sort((a, b) {
+      final aNum = int.tryParse(a.pumpNo);
+      final bNum = int.tryParse(b.pumpNo);
+      if (aNum != null && bNum != null) return aNum.compareTo(bNum);
+      return a.pumpNo.compareTo(b.pumpNo);
+    });
+
+    return result;
+  }
+
 
 
 

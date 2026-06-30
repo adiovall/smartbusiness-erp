@@ -36,8 +36,32 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _loadingTrend = true;
   List<DayAnalytics> _trend = [];
 
+  String _period = 'Week'; // 'Week' | 'Month' | 'Year' | 'Custom'
+  DateTime? _customFrom;
+  DateTime? _customTo;
+
   bool _loadingFuelPerformance = true;
   List<FuelPerformance> _fuelPerformance = [];
+
+  String _insightPeriod = 'Today'; // 'Today' | 'Week' | 'Month' | 'Year'
+
+  bool _loadingPumpPerformance = true;
+  List<PumpPerformance> _pumpPerformance = [];
+
+  // New state field, alongside _trend:
+  List<DayAnalytics> _insightTrend = [];
+  bool _loadingInsightTrend = true;
+
+  Future<void> _loadInsightTrend() async {
+    setState(() => _loadingInsightTrend = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchTrend(fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _insightTrend = data;
+      _loadingInsightTrend = false;
+    });
+  }
 
   bool _loadingReconciliation = true;
 
@@ -57,11 +81,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     _loadFuelPerformance();
     _loadAvailableDates();
     _loadReconciliation();
+    _loadPumpPerformance();
+    _loadInsightTrend();
   }
 
   Future<void> _loadFuelPerformance() async {
     setState(() => _loadingFuelPerformance = true);
-    final data = await Services.analytics.fetchFuelPerformance();
+    final range = _computeDateRange();
+    final data = await Services.analytics.fetchFuelPerformance(fromDate: range['from'], toDate: range['to']);
     if (!mounted) return;
     setState(() {
       _fuelPerformance = data;
@@ -84,7 +111,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Future<void> _loadTrend() async {
     setState(() => _loadingTrend = true);
-    final data = await Services.analytics.fetchTrend();
+    final range = _computeDateRange();
+    final data = await Services.analytics.fetchTrend(fromDate: range['from'], toDate: range['to']);
     if (!mounted) return;
     setState(() {
       _trend = data;
@@ -210,12 +238,67 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: _viewIndex == 0
                 ? _buildTrendView()
                 : _viewIndex == 1
-                    ? _buildDayDetailView()
+                    ? _buildInsightView()
                     : _buildReconciliationView(),
           ),
         ],
       ),
     );
+  }
+
+
+  Map<String, String?> _computeInsightDateRange() {
+    final now = DateTime.now();
+    String fmt(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+
+    switch (_insightPeriod) {
+      case 'Today':
+        return {'from': fmt(now), 'to': fmt(now)};
+      case 'Week':
+        final start = now.subtract(Duration(days: now.weekday - 1));
+        return {'from': fmt(start), 'to': fmt(now)};
+      case 'Month':
+        final start = DateTime(now.year, now.month, 1);
+        return {'from': fmt(start), 'to': fmt(now)};
+      case 'Year':
+        final start = DateTime(now.year, 1, 1);
+        return {'from': fmt(start), 'to': fmt(now)};
+      default:
+        return {'from': null, 'to': null};
+    }
+  }
+
+  Future<void> _loadPumpPerformance() async {
+    setState(() => _loadingPumpPerformance = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchPumpPerformance(fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _pumpPerformance = data;
+      _loadingPumpPerformance = false;
+    });
+  }
+
+  Map<String, String?> _computeDateRange() {
+    final now = DateTime.now();
+    String fmt(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+
+    switch (_period) {
+      case 'Week':
+        final start = now.subtract(Duration(days: now.weekday - 1));
+        return {'from': fmt(start), 'to': fmt(now)};
+      case 'Month':
+        final start = DateTime(now.year, now.month, 1);
+        return {'from': fmt(start), 'to': fmt(now)};
+      case 'Year':
+        final start = DateTime(now.year, 1, 1);
+        return {'from': fmt(start), 'to': fmt(now)};
+      case 'Custom':
+        if (_customFrom == null || _customTo == null) return {'from': null, 'to': null};
+        return {'from': fmt(_customFrom!), 'to': fmt(_customTo!)};
+      default:
+        return {'from': null, 'to': null};
+    }
   }
 
   Widget _buildTopBar() {
@@ -256,7 +339,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           _toggleButton('Trends', _viewIndex == 0, () => setState(() => _viewIndex = 0)),
           const SizedBox(width: 12),
-          _toggleButton('Day Detail', _viewIndex == 1, () => setState(() => _viewIndex = 1)),
+          _toggleButton('Insight', _viewIndex == 1, () => setState(() => _viewIndex = 1)),
           const SizedBox(width: 12),
           _toggleButton('Reconciliation', _viewIndex == 2, () => setState(() => _viewIndex = 2)),
         ],
@@ -285,14 +368,118 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildPeriodSelector() {
+    Widget periodBtn(String label) {
+      final active = _period == label;
+      return GestureDetector(
+        onTap: () {
+          setState(() => _period = label);
+          _loadTrend();
+          _loadFuelPerformance();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? Colors.orange.withOpacity(0.15) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: active ? Colors.orange : panelBorder),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.orange : textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        periodBtn('Week'),
+        const SizedBox(width: 8),
+        periodBtn('Month'),
+        const SizedBox(width: 8),
+        periodBtn('Year'),
+        const SizedBox(width: 8),
+        periodBtn('Custom'),
+        if (_period == 'Custom') ...[
+          const SizedBox(width: 16),
+          TextButton(
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _customFrom ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now(),
+                builder: (context, child) => Theme(
+                  data: ThemeData.dark().copyWith(
+                    colorScheme: const ColorScheme.dark(primary: Colors.orange, surface: Color(0xFF020617)),
+                  ),
+                  child: child!,
+                ),
+              );
+              if (picked != null) {
+                setState(() => _customFrom = picked);
+                if (_customTo != null) {
+                  _loadTrend();
+                  _loadFuelPerformance();
+                }
+              }
+            },
+            child: Text(
+              _customFrom == null ? 'From' : DateFormat('MMM d, yyyy').format(_customFrom!),
+              style: const TextStyle(color: textSecondary),
+            ),
+          ),
+          const Text('→', style: TextStyle(color: textSecondary)),
+          TextButton(
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _customTo ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now(),
+                builder: (context, child) => Theme(
+                  data: ThemeData.dark().copyWith(
+                    colorScheme: const ColorScheme.dark(primary: Colors.orange, surface: Color(0xFF020617)),
+                  ),
+                  child: child!,
+                ),
+              );
+              if (picked != null) {
+                setState(() => _customTo = picked);
+                if (_customFrom != null) _loadTrend();
+              }
+            },
+            child: Text(
+              _customTo == null ? 'To' : DateFormat('MMM d, yyyy').format(_customTo!),
+              style: const TextStyle(color: textSecondary),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildTrendView() {
     if (_loadingTrend) {
       return const Center(child: CircularProgressIndicator());
     }
 
     if (_trend.isEmpty) {
-      return const Center(
-        child: Text('No sent data yet', style: TextStyle(color: textSecondary)),
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPeriodSelector(),
+            const SizedBox(height: 40),
+            const Center(child: Text('No sent data yet for this period', style: TextStyle(color: textSecondary))),
+          ],
+        ),
       );
     }
 
@@ -306,6 +493,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildPeriodSelector(),
+          const SizedBox(height: 16),
           Row(
             children: [
               Expanded(child: _summaryCard('Total Revenue', totalRevenue, Colors.green)),
@@ -315,21 +504,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Expanded(child: _summaryCard('Total Delivery Cost', totalDelivery, Colors.orange)),
               const SizedBox(width: 12),
               Expanded(
-                child: _summaryCard(
-                  'Net',
-                  totalNet,
-                  totalNet >= 0 ? Colors.greenAccent : Colors.redAccent,
-                ),
+                child: _summaryCard('Net', totalNet, totalNet >= 0 ? Colors.greenAccent : Colors.redAccent),
               ),
             ],
           ),
           const SizedBox(height: 24),
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  Container(
-                    height: 420,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3, // chart gets more space
+                  child: Container(
+                    height: double.infinity,
                     decoration: BoxDecoration(
                       color: panelBg,
                       borderRadius: BorderRadius.circular(16),
@@ -350,10 +537,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  _buildFuelPerformanceSection(),
-                ],
-              ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  flex: 2, // Fuel Performance gets less space
+                  child: SingleChildScrollView(
+                    child: _buildFuelPerformanceSection(),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -957,6 +1149,182 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInsightView() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildInsightPeriodSelector(),
+          const SizedBox(height: 20),
+          _buildInsightKpiCards(),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 320,
+            child: _buildPumpChartSection(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInsightPeriodSelector() {
+    Widget btn(String label) {
+      final active = _insightPeriod == label;
+      return GestureDetector(
+        onTap: () {
+          setState(() => _insightPeriod = label);
+          _loadPumpPerformance();
+           _loadInsightTrend();
+          // (more reloads will be added here in later stages as we
+          // wire up Tank/Fuel/Suppliers/etc to this same period)
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? Colors.orange.withOpacity(0.15) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: active ? Colors.orange : panelBorder),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.orange : textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        btn('Today'),
+        const SizedBox(width: 8),
+        btn('Week'),
+        const SizedBox(width: 8),
+        btn('Month'),
+        const SizedBox(width: 8),
+        btn('Year'),
+      ],
+    );
+  }
+
+  Widget _buildInsightKpiCards() {
+    final totalRevenue = _insightTrend.fold(0.0, (s, d) => s + d.revenue);
+    final totalExpense = _insightTrend.fold(0.0, (s, d) => s + d.expense);
+    final totalNet = _insightTrend.fold(0.0, (s, d) => s + d.net);
+
+    return Row(
+      children: [
+        Expanded(child: _summaryCard('Revenue', totalRevenue, Colors.green)),
+        const SizedBox(width: 12),
+        Expanded(child: _summaryCard('Expenses', totalExpense, Colors.orange)),
+        const SizedBox(width: 12),
+        Expanded(child: _summaryCard('Net Profit', totalNet, Colors.purpleAccent)),
+        const SizedBox(width: 12),
+        Expanded(child: _summaryCard('Outstanding Debt', Services.debt.totalDebt, Colors.redAccent)),
+      ],
+    );
+  }
+
+  Widget _buildPumpChartSection() {
+    if (_loadingPumpPerformance) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_pumpPerformance.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: panelBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: panelBorder),
+        ),
+        child: const Center(
+          child: Text('No pump sales data for this period', style: TextStyle(color: textSecondary)),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Sales by Pump',
+            style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (_) => FlLine(color: panelBorder, strokeWidth: 1),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: FlTitlesData(
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 56,
+                      getTitlesWidget: (value, meta) => Text(
+                        NumberFormat.compact().format(value),
+                        style: const TextStyle(color: textSecondary, fontSize: 10),
+                      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        if (idx < 0 || idx >= _pumpPerformance.length) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Pump ${_pumpPerformance[idx].pumpNo}',
+                            style: const TextStyle(color: textSecondary, fontSize: 10),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                barGroups: _pumpPerformance.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final p = entry.value;
+                  return BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: p.revenue,
+                        color: Colors.green,
+                        width: 28,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
           ),
         ],
       ),

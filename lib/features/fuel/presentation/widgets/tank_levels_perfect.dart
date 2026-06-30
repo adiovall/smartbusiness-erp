@@ -7,7 +7,6 @@ import 'package:intl/intl.dart';
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/tank_state.dart';
 
-/* ===================== COLORS ===================== */
 const panelBg = Color(0xFF0f172a);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
@@ -31,11 +30,15 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
 
   bool _bootstrapped = false;
 
+  /// NEW: controls whether the capacity/level edit fields are shown.
+  /// false (default) -> fields hidden, button reads "Set Tank".
+  /// true -> fields visible/editable, button reads "Save".
+  bool _editingTank = false;
+
   @override
   void initState() {
     super.initState();
 
-    // Ensure sample tanks exist ONCE
     Future.microtask(() async {
       await _ensureTanksExist();
       _selectInitialTank();
@@ -53,9 +56,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     super.dispose();
   }
 
-  /* ===================== ENSURE DATA ===================== */
   Future<void> _ensureTanksExist() async {
-    // If tanks exist already -> no-op
     if (Services.tank.allTanks.isNotEmpty) return;
 
     await Services.tank.updateTank(
@@ -79,7 +80,6 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
       return;
     }
 
-    // Keep current selection if possible
     if (selectedTank != null) {
       selectedTank = tanks.firstWhere(
         (t) => t.fuelType == selectedTank!.fuelType,
@@ -92,7 +92,6 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     _updateControllers();
   }
 
-  /* ===================== LISTENER ===================== */
   void _onTankDataChanged() {
     if (!mounted) return;
     setState(() {
@@ -106,15 +105,28 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     levelController.text = selectedTank!.currentLevel.toStringAsFixed(0);
   }
 
+  /// Selecting a tank (via dropdown OR by tapping a level row below)
+  /// always shows that tank's current values. If you were mid-edit
+  /// on a different tank, switching closes the edit fields too, so
+  /// you don't accidentally save the wrong tank's numbers onto a
+  /// newly-selected one.
   void _onTankChanged(TankState? newTank) {
     if (newTank == null) return;
     setState(() {
       selectedTank = newTank;
+      _editingTank = false;
       _updateControllers();
     });
   }
 
-  /* ===================== SAVE ===================== */
+  /// NEW: toggles into edit mode for the currently selected tank.
+  void _startEditingTank() {
+    setState(() {
+      _editingTank = true;
+      _updateControllers(); // make sure fields show the latest values
+    });
+  }
+
   Future<void> _saveChanges() async {
     if (selectedTank == null) return;
 
@@ -154,14 +166,15 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     await Services.tank.updateTank(updatedTank);
 
     if (!mounted) return;
-    setState(() => selectedTank = updatedTank);
+    setState(() {
+      selectedTank = updatedTank;
+      _editingTank = false; // ← collapse back to "Set Tank" state
+    });
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${updatedTank.fuelType} tank updated successfully')),
     );
   }
-
-  /* ===================== UI HELPERS ===================== */
 
   InputDecoration _input(String label, {String? suffix}) {
     return InputDecoration(
@@ -213,12 +226,10 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     return Colors.green;
   }
 
-  /* ===================== UI ===================== */
   @override
   Widget build(BuildContext context) {
     final tanks = Services.tank.allTanks;
 
-    // While bootstrapping, show skeleton to avoid flicker
     if (!_bootstrapped) {
       return _loadingCard();
     }
@@ -240,7 +251,6 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // header
           Row(
             children: const [
               Text(
@@ -256,7 +266,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
           ),
           const SizedBox(height: 12),
 
-          // ✅ responsive settings row
+          // ===== Fuel dropdown + Set Tank/Save button row =====
           LayoutBuilder(
             builder: (context, c) {
               final tight = c.maxWidth < 520;
@@ -283,17 +293,16 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
                 onChanged: _onTankChanged,
               );
 
-              final cap = _numField(controller: capacityController, label: 'Capacity', suffix: 'L');
-              final lvl = _numField(controller: levelController, label: 'Level', suffix: 'L');
-
-              final saveBtn = SizedBox(
+              // NEW: button toggles between "Set Tank" and "Save"
+              // depending on _editingTank.
+              final actionBtn = SizedBox(
                 height: 44,
                 child: ElevatedButton.icon(
-                  onPressed: _saveChanges,
-                  icon: const Icon(Icons.save, size: 18),
-                  label: const Text('Save'),
+                  onPressed: _editingTank ? _saveChanges : _startEditingTank,
+                  icon: Icon(_editingTank ? Icons.save : Icons.tune, size: 18),
+                  label: Text(_editingTank ? 'Save' : 'Set Tank'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
+                    backgroundColor: _editingTank ? Colors.green : Colors.orange,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
@@ -303,85 +312,96 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
               if (!tight) {
                 return Row(
                   children: [
-                    Expanded(flex: 2, child: fuelDrop),
+                    Expanded(flex: 3, child: fuelDrop),
                     const SizedBox(width: 12),
-                    Expanded(flex: 2, child: cap),
-                    const SizedBox(width: 12),
-                    Expanded(flex: 2, child: lvl),
-                    const SizedBox(width: 12),
-                    SizedBox(width: 110, child: saveBtn),
+                    SizedBox(width: 130, child: actionBtn),
                   ],
                 );
               }
 
-              // Tight width -> wrap into two rows (no overflow)
-              return Column(
+              return Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: fuelDrop),
-                      const SizedBox(width: 12),
-                      SizedBox(width: 110, child: saveBtn),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: cap),
-                      const SizedBox(width: 12),
-                      Expanded(child: lvl),
-                    ],
-                  ),
+                  Expanded(child: fuelDrop),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 130, child: actionBtn),
                 ],
               );
             },
           ),
 
+          // ===== Capacity/Level fields — ONLY shown while editing =====
+          if (_editingTank) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _numField(controller: capacityController, label: 'Capacity', suffix: 'L'),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _numField(controller: levelController, label: 'Level', suffix: 'L'),
+                ),
+              ],
+            ),
+          ],
+
           const SizedBox(height: 18),
 
-          // linear gauges
+          // ===== Linear gauges — now tappable to switch selection =====
           ...tanks.map((t) {
             final p = t.percentage;
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 58,
-                    child: Text(
-                      t.fuelType,
-                      style: const TextStyle(fontSize: 11, color: textSecondary),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: p / 100,
-                        minHeight: 14,
-                        backgroundColor: Colors.white.withOpacity(0.06),
-                        color: _levelColor(p),
+            final isSelected = selectedTank?.fuelType == t.fuelType;
+            return InkWell(
+              onTap: () => _onTankChanged(t),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.white.withOpacity(0.05) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 58,
+                      child: Text(
+                        t.fuelType,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isSelected ? textPrimary : textSecondary,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 42,
-                    child: Text(
-                      '${p.toInt()}%',
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(fontSize: 11, color: textSecondary),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: LinearProgressIndicator(
+                          value: p / 100,
+                          minHeight: 14,
+                          backgroundColor: Colors.white.withOpacity(0.06),
+                          color: _levelColor(p),
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 42,
+                      child: Text(
+                        '${p.toInt()}%',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontSize: 11, color: textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           }),
 
           const SizedBox(height: 18),
 
-          // gauge
           Expanded(
             child: Center(
               child: Column(
@@ -433,7 +453,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
                     runSpacing: 6,
                     children: [
                       Text(
-                        '${_n(selectedTank!.currentLevel)} / ${_n(selectedTank!.capacity)} L', // ✅ commas
+                        '${_n(selectedTank!.currentLevel)} / ${_n(selectedTank!.capacity)} L',
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
