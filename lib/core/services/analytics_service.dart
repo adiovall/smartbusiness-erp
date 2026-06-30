@@ -81,6 +81,36 @@ class DebtSummary {
   });
 }
 
+class ExternalPaymentSummary {
+  final String supplier;
+  final String fuelType;
+  final String kind;
+  final double amount;
+
+  ExternalPaymentSummary({
+    required this.supplier,
+    required this.fuelType,
+    required this.kind,
+    required this.amount,
+  });
+}
+
+class CashFlowSummary {
+  final double salesRevenue;
+  final double expenses;
+  final double debtSettlements;
+  final double externalPayments;
+
+  CashFlowSummary({
+    required this.salesRevenue,
+    required this.expenses,
+    required this.debtSettlements,
+    required this.externalPayments,
+  });
+
+  double get netCashFlow => salesRevenue - expenses - debtSettlements - externalPayments;
+}
+
 
 class AnalyticsService {
   final OutboxRepo outboxRepo;
@@ -328,6 +358,78 @@ Future<List<DebtSummary>> fetchDebtOverview({String? fromDate, String? toDate}) 
     final result = debtMap.values.toList();
     result.sort((a, b) => b.amount.compareTo(a.amount));
     return result;
+  }
+
+  Future<List<ExternalPaymentSummary>> fetchExternalPayments({String? fromDate, String? toDate}) async {
+    final records = await outboxRepo.fetchAll();
+    final filtered = records.where((r) {
+      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+      return true;
+    }).toList();
+
+    final result = <ExternalPaymentSummary>[];
+
+    for (final r in filtered) {
+      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
+      final payments = (payload['externalPayments'] as List? ?? []);
+      for (final p in payments) {
+        result.add(ExternalPaymentSummary(
+          supplier: (p['supplier'] as String?) ?? 'Unknown',
+          fuelType: (p['fuelType'] as String?) ?? '',
+          kind: (p['kind'] as String?) ?? '',
+          amount: (p['amount'] as num?)?.toDouble() ?? 0.0,
+        ));
+      }
+    }
+
+    result.sort((a, b) => b.amount.compareTo(a.amount));
+    return result;
+  }
+
+  Future<CashFlowSummary> fetchCashFlow({String? fromDate, String? toDate}) async {
+    final records = await outboxRepo.fetchAll();
+    final filtered = records.where((r) {
+      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+      return true;
+    }).toList();
+
+    double salesRevenue = 0;
+    double expenses = 0;
+    double debtSettlements = 0;
+    double externalPayments = 0;
+
+    for (final r in filtered) {
+      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
+
+      final sales = (payload['sales'] as List? ?? []);
+      for (final s in sales) {
+        salesRevenue += (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      final exps = (payload['expenses'] as List? ?? []);
+      for (final e in exps) {
+        expenses += (e['amount'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      final settlements = (payload['settlements'] as List? ?? []);
+      for (final s in settlements) {
+        debtSettlements += (s['paidAmount'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      final extPayments = (payload['externalPayments'] as List? ?? []);
+      for (final p in extPayments) {
+        externalPayments += (p['amount'] as num?)?.toDouble() ?? 0.0;
+      }
+    }
+
+    return CashFlowSummary(
+      salesRevenue: salesRevenue,
+      expenses: expenses,
+      debtSettlements: debtSettlements,
+      externalPayments: externalPayments,
+    );
   }
 
 

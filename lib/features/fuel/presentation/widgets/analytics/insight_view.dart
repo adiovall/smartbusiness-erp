@@ -33,6 +33,11 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
   List<DayAnalytics> _insightTrend = [];
   bool _loadingTopSuppliers = true;
   List<SupplierPerformance> _topSuppliers = [];
+  bool _loadingExternalPayments = true;
+  List<ExternalPaymentSummary> _externalPayments = [];
+
+  bool _loadingCashFlow = true;
+  CashFlowSummary? _cashFlow;
 
   bool _loadingExpenseBreakdown = true;
   List<ExpenseCategoryTotal> _expenseBreakdown = [];
@@ -49,6 +54,8 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     _loadTopSuppliers();
     _loadExpenseBreakdown();
     _loadDebtOverview();
+    _loadExternalPayments();
+    _loadCashFlow();
   }
 
 
@@ -59,6 +66,8 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     _loadTopSuppliers();
     _loadExpenseBreakdown();
     _loadDebtOverview();
+    _loadExternalPayments();
+    _loadCashFlow();
   }
 
   Map<String, String?> _computeInsightDateRange() {
@@ -80,6 +89,30 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       default:
         return {'from': null, 'to': null};
     }
+  }
+
+  Future<void> _loadExternalPayments() async {
+    setState(() => _loadingExternalPayments = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchExternalPayments(
+        fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _externalPayments = data;
+      _loadingExternalPayments = false;
+    });
+  }
+
+  Future<void> _loadCashFlow() async {
+    setState(() => _loadingCashFlow = true);
+    final range = _computeInsightDateRange();
+    final data = await Services.analytics.fetchCashFlow(
+        fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _cashFlow = data;
+      _loadingCashFlow = false;
+    });
   }
 
   Future<void> _loadTopSuppliers() async {
@@ -194,6 +227,18 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
               ],
             ),
           ),
+          const SizedBox(height: 20),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(flex: 2, child: _buildExternalPaymentsSection()),
+                const SizedBox(width: 16),
+                Expanded(flex: 3, child: _buildCashFlowSection()),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -256,6 +301,145 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
                 ),
               );
             })),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExternalPaymentsSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('External Payments',
+              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          const SizedBox(height: 12),
+          if (_loadingExternalPayments)
+            const Center(child: CircularProgressIndicator())
+          else if (_externalPayments.isEmpty)
+            const Center(
+              child: Text('No external payments', style: TextStyle(color: textSecondary)),
+            )
+          else
+            SizedBox(
+              height: 200,
+              child: ListView.separated(
+                itemCount: _externalPayments.length,
+                separatorBuilder: (_, __) => const Divider(color: panelBorder, height: 1),
+                itemBuilder: (_, i) {
+                  final p = _externalPayments[i];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(p.supplier,
+                                  style: const TextStyle(color: textPrimary, fontSize: 12),
+                                  overflow: TextOverflow.ellipsis),
+                              Text('${p.fuelType} • ${p.kind}',
+                                  style: const TextStyle(color: textSecondary, fontSize: 10)),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          moneyFmt.format(p.amount),
+                          style: const TextStyle(
+                              color: Colors.cyan, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCashFlowSection() {
+    if (_loadingCashFlow || _cashFlow == null) {
+      return Container(
+        decoration: BoxDecoration(
+          color: panelBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: panelBorder),
+        ),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final cf = _cashFlow!;
+    final net = cf.netCashFlow;
+
+    Widget cashRow(String label, double value, Color color, {bool isBold = false}) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label,
+                style: TextStyle(
+                  color: isBold ? textPrimary : textSecondary,
+                  fontSize: isBold ? 13 : 12,
+                  fontWeight: isBold ? FontWeight.w700 : FontWeight.normal,
+                )),
+            Text(
+              '${value >= 0 ? '+' : ''}${moneyFmt.format(value)}',
+              style: TextStyle(
+                color: color,
+                fontSize: isBold ? 15 : 12,
+                fontWeight: isBold ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Cash Flow Summary',
+              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          const SizedBox(height: 16),
+          cashRow('Sales Revenue', cf.salesRevenue, Colors.green),
+          cashRow('Expenses', -cf.expenses, Colors.redAccent),
+          cashRow('Debt Settlements', -cf.debtSettlements, Colors.orange),
+          cashRow('External Payments', -cf.externalPayments, Colors.orange),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Divider(color: panelBorder),
+          ),
+          cashRow('Net Cash Flow', net, net >= 0 ? Colors.greenAccent : Colors.redAccent, isBold: true),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: cf.salesRevenue > 0
+                  ? ((cf.expenses + cf.debtSettlements + cf.externalPayments) / cf.salesRevenue).clamp(0.0, 1.0)
+                  : 0.0,
+              minHeight: 8,
+              backgroundColor: Colors.green.withOpacity(0.3),
+              color: Colors.redAccent.withOpacity(0.7),
+            ),
+          ),
         ],
       ),
     );
