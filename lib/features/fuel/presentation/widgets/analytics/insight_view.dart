@@ -35,6 +35,8 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
   List<SupplierPerformance> _topSuppliers = [];
   bool _loadingExternalPayments = true;
   List<ExternalPaymentSummary> _externalPayments = [];
+  List<AiInsight> _aiInsights = [];
+  bool _loadingAiInsights = true;
 
   bool _loadingCashFlow = true;
   CashFlowSummary? _cashFlow;
@@ -56,6 +58,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     _loadDebtOverview();
     _loadExternalPayments();
     _loadCashFlow();
+    _loadAiInsights();
   }
 
 
@@ -68,6 +71,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     _loadDebtOverview();
     _loadExternalPayments();
     _loadCashFlow();
+    _loadAiInsights();
   }
 
   Map<String, String?> _computeInsightDateRange() {
@@ -89,6 +93,69 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       default:
         return {'from': null, 'to': null};
     }
+  }
+
+  Future<void> _loadAiInsights() async {
+    setState(() => _loadingAiInsights = true);
+
+    final range = _computeInsightDateRange();
+
+    // Compute previous period range for comparison
+    final now = DateTime.now();
+    String fmt(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+    String? prevFrom, prevTo;
+
+    switch (_insightPeriod) {
+      case 'Today':
+        final yesterday = now.subtract(const Duration(days: 1));
+        prevFrom = prevTo = fmt(yesterday);
+        break;
+      case 'Week':
+        final thisStart = now.subtract(Duration(days: now.weekday - 1));
+        prevTo = fmt(thisStart.subtract(const Duration(days: 1)));
+        prevFrom = fmt(thisStart.subtract(const Duration(days: 7)));
+        break;
+      case 'Month':
+        final thisStart = DateTime(now.year, now.month, 1);
+        prevTo = fmt(thisStart.subtract(const Duration(days: 1)));
+        prevFrom = fmt(DateTime(thisStart.year, thisStart.month - 1, 1));
+        break;
+      case 'Year':
+        prevFrom = fmt(DateTime(now.year - 1, 1, 1));
+        prevTo = fmt(DateTime(now.year - 1, 12, 31));
+        break;
+    }
+
+    final results = await Future.wait([
+      Services.analytics.fetchTrend(fromDate: range['from'], toDate: range['to']),
+      Services.analytics.fetchTrend(fromDate: prevFrom, toDate: prevTo),
+      Services.analytics.fetchExpenseBreakdown(fromDate: range['from'], toDate: range['to']),
+      Services.analytics.fetchExpenseBreakdown(fromDate: prevFrom, toDate: prevTo),
+      Services.analytics.fetchDebtOverview(fromDate: range['from'], toDate: range['to']),
+      Services.analytics.fetchPumpPerformance(fromDate: range['from'], toDate: range['to']),
+      Services.analytics.fetchFuelPerformance(fromDate: range['from'], toDate: range['to']),
+      Services.analytics.fetchExternalPayments(fromDate: range['from'], toDate: range['to']),
+    ]);
+
+    if (!mounted) return;
+
+    final insights = AiInsightEngine.generate(
+      tanks: Services.tank.allTanks,
+      currentPeriod: results[0] as List<DayAnalytics>,
+      previousPeriod: results[1] as List<DayAnalytics>,
+      expenseBreakdown: results[2] as List<ExpenseCategoryTotal>,
+      previousExpenseBreakdown: results[3] as List<ExpenseCategoryTotal>,
+      debts: results[4] as List<DebtSummary>,
+      pumpPerformance: results[5] as List<PumpPerformance>,
+      fuelPerformance: results[6] as List<FuelPerformance>,
+      externalPayments: results[7] as List<ExternalPaymentSummary>,
+      currentPeriodLabel: _insightPeriod.toLowerCase(),
+    );
+
+    setState(() {
+      _aiInsights = insights;
+      _loadingAiInsights = false;
+    });
   }
 
   Future<void> _loadExternalPayments() async {
@@ -238,7 +305,125 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
               ],
             ),
           ),
+          const SizedBox(height: 20),
+          _buildAiInsightsSection(),
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildAiInsightsSection() {
+    final iconFor = (InsightType type) {
+      switch (type) {
+        case InsightType.warning: return Icons.warning_amber_rounded;
+        case InsightType.positive: return Icons.check_circle_outline;
+        case InsightType.info: return Icons.info_outline;
+      }
+    };
+
+    final colorFor = (InsightType type) {
+      switch (type) {
+        case InsightType.warning: return Colors.orange;
+        case InsightType.positive: return Colors.greenAccent;
+        case InsightType.info: return Colors.cyan;
+      }
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: panelBorder),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: Colors.amber, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'AI Insights',
+                style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                ),
+                child: const Text(
+                  'Rule-based',
+                  style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _insightPeriod,
+                style: const TextStyle(color: textSecondary, fontSize: 11),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_loadingAiInsights)
+            const Center(child: CircularProgressIndicator())
+          else if (_aiInsights.isEmpty)
+            const Center(
+              child: Text(
+                'No insights available for this period yet.',
+                style: TextStyle(color: textSecondary),
+              ),
+            )
+          else
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: _aiInsights.map((insight) {
+                final color = colorFor(insight.type);
+                final icon = iconFor(insight.type);
+                return Container(
+                  width: 340,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: color.withOpacity(0.25)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(icon, color: color, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              insight.title,
+                              style: TextStyle(
+                                color: color,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              insight.detail,
+                              style: const TextStyle(color: textSecondary, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
         ],
       ),
     );

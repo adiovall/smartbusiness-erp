@@ -1,6 +1,8 @@
 // lib/core/services/analytics_service.dart
 
 import 'dart:convert';
+import 'package:intl/intl.dart';          // 
+import '../models/tank_state.dart';
 import '../../features/fuel/repositories/outbox_repo.dart';
 
 class DayAnalytics {
@@ -43,6 +45,13 @@ class PumpPerformance {
     required this.revenue,
     required this.liters,
   });
+}
+
+class FuelPriceTrend {
+  final String businessDate;
+  final Map<String, double> avgPriceByFuel; // fuelType → avg unit price that day
+
+  FuelPriceTrend({required this.businessDate, required this.avgPriceByFuel});
 }
 
 /// Top supplier by total delivery value over the selected period.
@@ -109,6 +118,164 @@ class CashFlowSummary {
   });
 
   double get netCashFlow => salesRevenue - expenses - debtSettlements - externalPayments;
+}
+
+enum InsightType { warning, positive, info }
+
+class AiInsight {
+  final InsightType type;
+  final String title;
+  final String detail;
+
+  AiInsight({required this.type, required this.title, required this.detail});
+}
+
+class AiInsightEngine {
+  static List<AiInsight> generate({
+    required List<TankState> tanks,
+    required List<DayAnalytics> currentPeriod,
+    required List<DayAnalytics> previousPeriod,
+    required List<ExpenseCategoryTotal> expenseBreakdown,
+    required List<ExpenseCategoryTotal> previousExpenseBreakdown,
+    required List<DebtSummary> debts,
+    required List<PumpPerformance> pumpPerformance,
+    required List<FuelPerformance> fuelPerformance,
+    required List<ExternalPaymentSummary> externalPayments,
+    required String currentPeriodLabel,
+  }) {
+    final insights = <AiInsight>[];
+    final money = NumberFormat.currency(locale: 'en_NG', symbol: '₦', decimalDigits: 0);
+
+    // ── 1. TANK LOW WARNING ──────────────────────────────────────────
+    for (final tank in tanks) {
+      if (tank.percentage < 20) {
+        insights.add(AiInsight(
+          type: InsightType.warning,
+          title: '${tank.fuelType} tank critically low',
+          detail: '${tank.percentage.toInt()}% remaining (${tank.currentLevel.toStringAsFixed(0)}L of ${tank.capacity.toStringAsFixed(0)}L). Consider reordering soon.',
+        ));
+      } else if (tank.percentage < 35) {
+        insights.add(AiInsight(
+          type: InsightType.info,
+          title: '${tank.fuelType} tank running low',
+          detail: '${tank.percentage.toInt()}% remaining. Plan a delivery before stock runs out.',
+        ));
+      }
+    }
+
+    // ── 2. SHORTAGE TREND ───────────────────────────────────────────
+    final currentShortage = expenseBreakdown
+        .where((e) => e.category.toLowerCase().contains('shortage'))
+        .fold(0.0, (s, e) => s + e.amount);
+    final previousShortage = previousExpenseBreakdown
+        .where((e) => e.category.toLowerCase().contains('shortage'))
+        .fold(0.0, (s, e) => s + e.amount);
+
+    if (currentShortage > 0 && previousShortage > 0) {
+      final pct = ((currentShortage - previousShortage) / previousShortage * 100).round();
+      if (pct > 10) {
+        insights.add(AiInsight(
+          type: InsightType.warning,
+          title: 'Shortages increased by $pct%',
+          detail: '${money.format(currentShortage)} in shortages this $currentPeriodLabel vs ${money.format(previousShortage)} previously. Check pump readings.',
+        ));
+      } else if (pct < -10) {
+        insights.add(AiInsight(
+          type: InsightType.positive,
+          title: 'Shortages reduced by ${pct.abs()}%',
+          detail: 'Shortage losses dropped to ${money.format(currentShortage)} this $currentPeriodLabel. Keep it up.',
+        ));
+      }
+    } else if (currentShortage > 0 && previousShortage == 0) {
+      insights.add(AiInsight(
+        type: InsightType.warning,
+        title: 'Shortages detected',
+        detail: '${money.format(currentShortage)} in shortage losses recorded this $currentPeriodLabel.',
+      ));
+    }
+
+    // ── 3. REVENUE GROWTH ───────────────────────────────────────────
+    final currentRevenue = currentPeriod.fold(0.0, (s, d) => s + d.revenue);
+    final previousRevenue = previousPeriod.fold(0.0, (s, d) => s + d.revenue);
+
+    if (currentRevenue > 0 && previousRevenue > 0) {
+      final pct = ((currentRevenue - previousRevenue) / previousRevenue * 100).round();
+      if (pct >= 5) {
+        insights.add(AiInsight(
+          type: InsightType.positive,
+          title: 'Revenue up $pct% vs last $currentPeriodLabel',
+          detail: '${money.format(currentRevenue)} this $currentPeriodLabel vs ${money.format(previousRevenue)} previously. Great performance.',
+        ));
+      } else if (pct <= -10) {
+        insights.add(AiInsight(
+          type: InsightType.warning,
+          title: 'Revenue down ${pct.abs()}% vs last $currentPeriodLabel',
+          detail: '${money.format(currentRevenue)} this $currentPeriodLabel vs ${money.format(previousRevenue)} previously. Investigate the drop.',
+        ));
+      }
+    }
+
+    // ── 4. OUTSTANDING DEBT ALERT ───────────────────────────────────
+    final unpaidDebts = debts.where((d) => !d.settled && d.amount > 0).toList();
+    for (final d in unpaidDebts.take(3)) {
+      insights.add(AiInsight(
+        type: InsightType.warning,
+        title: '${d.supplier} has outstanding debt',
+        detail: '${money.format(d.amount)} unpaid for ${d.fuelType} delivery. Consider settling soon.',
+      ));
+    }
+
+    // ── 5. BEST PERFORMING PUMP ─────────────────────────────────────
+    if (pumpPerformance.isNotEmpty) {
+      final best = pumpPerformance.reduce((a, b) => a.revenue > b.revenue ? a : b);
+      final total = pumpPerformance.fold(0.0, (s, p) => s + p.revenue);
+      final share = total > 0 ? (best.revenue / total * 100).round() : 0;
+      if (pumpPerformance.length > 1) {
+        insights.add(AiInsight(
+          type: InsightType.positive,
+          title: 'Pump ${best.pumpNo} is your top performer',
+          detail: '${money.format(best.revenue)} revenue ($share% of total pump sales) this $currentPeriodLabel.',
+        ));
+      }
+    }
+
+    // ── 6. DOMINANT FUEL ────────────────────────────────────────────
+    if (fuelPerformance.isNotEmpty) {
+      final best = fuelPerformance.first; // already sorted by revenue
+      final total = fuelPerformance.fold(0.0, (s, f) => s + f.revenue);
+      final share = total > 0 ? (best.revenue / total * 100).round() : 0;
+      if (share >= 50) {
+        insights.add(AiInsight(
+          type: InsightType.positive,
+          title: '${best.fuelType} drives $share% of revenue',
+          detail: '${money.format(best.revenue)} from ${best.fuelType} this $currentPeriodLabel — your most profitable fuel.',
+        ));
+      }
+    }
+
+    // ── 7. DELIVERY FREQUENCY ALERT ─────────────────────────────────
+    // Uses external payments as a proxy for last delivery date per supplier,
+    // since deliveries are archived after send and ExternalPayments track them.
+    if (externalPayments.isNotEmpty) {
+      // Group by supplier to find who appears least recently.
+      // We flag if a supplier who has delivered before hasn't appeared
+      // in the current period at all — implying a gap.
+      final suppliersThisPeriod = externalPayments.map((e) => e.supplier).toSet();
+      final allKnownSuppliers = debts.map((d) => d.supplier).toSet();
+
+      for (final supplier in allKnownSuppliers) {
+        if (!suppliersThisPeriod.contains(supplier)) {
+          insights.add(AiInsight(
+            type: InsightType.info,
+            title: 'No delivery from $supplier this $currentPeriodLabel',
+            detail: 'Consider following up with $supplier — no deliveries recorded this $currentPeriodLabel.',
+          ));
+        }
+      }
+    }
+
+    return insights;
+  }
 }
 
 
@@ -208,6 +375,45 @@ class AnalyticsService {
 
     result.sort((a, b) => b.revenue.compareTo(a.revenue));
     return result;
+  }
+
+  Future<List<FuelPriceTrend>> fetchPriceTrend({String? fromDate, String? toDate}) async {
+    final records = await outboxRepo.fetchAll();
+
+    final filtered = records.where((r) {
+      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+      return true;
+    }).toList();
+
+    filtered.sort((a, b) => a.businessDate.compareTo(b.businessDate));
+
+    return filtered.map((r) {
+      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
+      final sales = (payload['sales'] as List? ?? []);
+
+      // Group sales by fuel type, compute weighted average unit price
+      final Map<String, double> totalAmountByFuel = {};
+      final Map<String, double> totalLitersByFuel = {};
+
+      for (final s in sales) {
+        var fuel = (s['fuelType'] as String?) ?? 'Unknown';
+        if (fuel == 'LPG') fuel = 'Gas';
+        final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
+        final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
+
+        totalAmountByFuel[fuel] = (totalAmountByFuel[fuel] ?? 0.0) + amount;
+        totalLitersByFuel[fuel] = (totalLitersByFuel[fuel] ?? 0.0) + liters;
+      }
+
+      final avgPrices = <String, double>{};
+      for (final fuel in totalAmountByFuel.keys) {
+        final liters = totalLitersByFuel[fuel] ?? 0.0;
+        avgPrices[fuel] = liters > 0 ? (totalAmountByFuel[fuel]! / liters) : 0.0;
+      }
+
+      return FuelPriceTrend(businessDate: r.businessDate, avgPriceByFuel: avgPrices);
+    }).toList();
   }
 
   Future<List<PumpPerformance>> fetchPumpPerformance({String? fromDate, String? toDate}) async {

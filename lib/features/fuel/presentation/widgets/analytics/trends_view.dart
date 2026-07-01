@@ -31,11 +31,15 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
   bool _loadingFuelPerformance = true;
   List<FuelPerformance> _fuelPerformance = [];
 
+  bool _loadingPriceTrend = true;
+  List<FuelPriceTrend> _priceTrend = [];
+
   @override
   void initState() {
     super.initState();
     _loadTrend();
     _loadFuelPerformance();
+    _loadPriceTrend();
   }
 
   Map<String, String?> _computeDateRange() {
@@ -58,6 +62,18 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
       default:
         return {'from': null, 'to': null};
     }
+  }
+
+  Future<void> _loadPriceTrend() async {
+  setState(() => _loadingPriceTrend = true);
+    final range = _computeDateRange();
+    final data = await Services.analytics.fetchPriceTrend(
+        fromDate: range['from'], toDate: range['to']);
+    if (!mounted) return;
+    setState(() {
+      _priceTrend = data;
+      _loadingPriceTrend = false;
+    });
   }
 
   Future<void> _loadTrend() async {
@@ -85,6 +101,7 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
   void _reloadAll() {
     _loadTrend();
     _loadFuelPerformance();
+    _loadPriceTrend();
   }
 
   @override
@@ -139,6 +156,7 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // A: Revenue/Expense/Delivery/Net chart
                 Expanded(
                   flex: 3,
                   child: Container(
@@ -164,12 +182,20 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 16),
+                // B: Fuel Performance
                 Expanded(
                   flex: 2,
-                  child: SingleChildScrollView(
+                  child: SizedBox(
+                    height: double.infinity,
                     child: _buildFuelPerformanceSection(),
                   ),
+                ),
+                const SizedBox(width: 16),
+                // C: Price Trend
+                Expanded(
+                  flex: 2,
+                  child: _buildPriceTrendSection(),
                 ),
               ],
             ),
@@ -322,6 +348,145 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
     );
   }
 
+  Widget _buildPriceTrendSection() {
+    if (_loadingPriceTrend) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_priceTrend.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // Collect all fuel types that appear across the period
+    final fuelTypes = <String>{};
+    for (final day in _priceTrend) {
+      fuelTypes.addAll(day.avgPriceByFuel.keys);
+    }
+    final fuels = fuelTypes.toList()..sort();
+
+    final fuelColors = {
+      'PMS': Colors.green,
+      'AGO': Colors.orange,
+      'DPK': Colors.cyan,
+      'Gas': Colors.purpleAccent,
+    };
+
+    // Build one line per fuel type
+    final lines = <LineChartBarData>[];
+    for (final fuel in fuels) {
+      final spots = <FlSpot>[];
+      for (int i = 0; i < _priceTrend.length; i++) {
+        final price = _priceTrend[i].avgPriceByFuel[fuel];
+        if (price != null && price > 0) {
+          spots.add(FlSpot(i.toDouble(), price));
+        }
+      }
+      if (spots.isEmpty) continue;
+
+      lines.add(LineChartBarData(
+        spots: spots,
+        isCurved: false,
+        color: fuelColors[fuel] ?? Colors.grey,
+        barWidth: 2.5,
+        dotData: const FlDotData(show: true),
+        belowBarData: BarAreaData(show: false),
+      ));
+    }
+
+      return Container(
+        height: double.infinity, // fills the Expanded slot
+        decoration: BoxDecoration(
+          color: panelBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: panelBorder),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Price Trend (₦ per Litre)',
+            style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: BarChart(
+              BarChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (_) => FlLine(color: panelBorder, strokeWidth: 1),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: FlTitlesData(
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 56,
+                      getTitlesWidget: (value, meta) => Text(
+                        '₦${NumberFormat.compact().format(value)}',
+                        style: const TextStyle(color: textSecondary, fontSize: 10),
+                      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        if (idx < 0 || idx >= fuels.length) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(fuels[idx], style: const TextStyle(color: textSecondary, fontSize: 10)),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                barGroups: fuels.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final fuel = entry.value;
+                  final color = fuelColors[fuel] ?? Colors.grey;
+                  // Average price across all days for this fuel
+                  final prices = _priceTrend
+                      .map((d) => d.avgPriceByFuel[fuel])
+                      .whereType<double>()
+                      .where((p) => p > 0)
+                      .toList();
+                  final avgPrice = prices.isEmpty
+                      ? 0.0
+                      : prices.reduce((a, b) => a + b) / prices.length;
+                  return BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: avgPrice,
+                        color: color,
+                        width: 32,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 16,
+            children: fuels.map((fuel) {
+              final color = fuelColors[fuel] ?? Colors.grey;
+              return legendItem(fuel, color);
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFuelPerformanceSection() {
     if (_loadingFuelPerformance) {
       return const Center(child: CircularProgressIndicator());
@@ -367,8 +532,8 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
                     final share = totalRevenue > 0 ? (f.revenue / totalRevenue) * 100 : 0.0;
                     final color = fuelColors[f.fuelType] ?? Colors.grey;
                     return Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         color: color.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(10),
@@ -387,11 +552,11 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(f.fuelType,
-                                    style: const TextStyle(color: textPrimary, fontWeight: FontWeight.w700)),
+                                  style: const TextStyle(color: textPrimary, fontWeight: FontWeight.w700, fontSize: 11)),
                                 const SizedBox(height: 2),
                                 Text(
                                   '${f.liters.toStringAsFixed(0)} L',
-                                  style: const TextStyle(color: textSecondary, fontSize: 12),
+                                  style: const TextStyle(color: textSecondary, fontSize: 10),
                                 ),
                               ],
                             ),
@@ -401,7 +566,7 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
                             children: [
                               Text(
                                 moneyFmt.format(f.revenue),
-                                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+                                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
                               ),
                               Text(
                                 '${share.toStringAsFixed(1)}%',
@@ -419,7 +584,7 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
               Expanded(
                 flex: 2,
                 child: SizedBox(
-                  height: 200,
+                  height: 160,
                   child: PieChart(
                     PieChartData(
                       sections: _fuelPerformance.map((f) {
@@ -434,11 +599,11 @@ class _AnalyticsTrendsViewState extends State<AnalyticsTrendsView> {
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
                           ),
-                          radius: 70,
+                          radius: 55,
                         );
                       }).toList(),
                       sectionsSpace: 2,
-                      centerSpaceRadius: 35,
+                      centerSpaceRadius: 25,
                     ),
                   ),
                 ),
