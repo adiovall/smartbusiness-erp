@@ -58,8 +58,13 @@ class ReconciliationService {
   /// all sent business dates, oldest first. The first sent date for
   /// each fuel type has no prior snapshot to compare against, so it's
   /// excluded from the results (nothing to reconcile against).
-  Future<List<FuelDayReconciliation>> computeAll() async {
-    final records = await outboxRepo.fetchAll();
+  Future<List<FuelDayReconciliation>> computeAll({String? fromDate, String? toDate}) async {
+  final allRecords = await outboxRepo.fetchAll();
+  final records = allRecords.where((r) {
+    if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+    if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+    return true;
+  }).toList();
 
     // Sort oldest first by businessDate (not createdAt, since a
     // corrected/backdated send could have a createdAt out of order

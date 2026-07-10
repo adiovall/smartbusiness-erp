@@ -326,6 +326,24 @@ class AnalyticsService {
     return list;
   }
 
+  /// Returns raw outbox records as maps for direct payload inspection.
+  /// Used by Reconciliation's pump table to read opening/closing meter readings.
+  Future<List<Map<String, dynamic>>> fetchRawOutbox(
+      {String? fromDate, String? toDate}) async {
+    final records = await outboxRepo.fetchAll();
+    return records
+        .where((r) {
+          if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
+          if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+          return true;
+        })
+        .map((r) => {
+              'businessDate': r.businessDate,
+              'payloadJson': r.payloadJson,
+            })
+        .toList();
+  }
+
   Future<Map<String, dynamic>?> fetchDayDetail(String businessDate) async {
     final record = await outboxRepo.fetchByBusinessDate(businessDate);
     if (record == null) return null;
