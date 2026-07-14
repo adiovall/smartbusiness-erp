@@ -9,6 +9,7 @@ class DayEntry {
   DayEntryStatus delivery;
   DayEntryStatus expense;
   DayEntryStatus settlement;
+  DayEntryStatus tankDip;
 
   DateTime? submittedAt; // 👈 SUBMISSION DATE
 
@@ -18,6 +19,7 @@ class DayEntry {
     this.delivery = DayEntryStatus.none,
     this.expense = DayEntryStatus.none,
     this.settlement = DayEntryStatus.none,
+    this.tankDip = DayEntryStatus.none,
     this.submittedAt,
   });
 
@@ -27,6 +29,7 @@ class DayEntry {
         'delivery': delivery.index,
         'expense': expense.index,
         'settlement': settlement.index,
+        'tankDip': tankDip.index,
         'submittedAt': submittedAt?.toIso8601String(),
       };
 
@@ -37,6 +40,7 @@ class DayEntry {
       delivery: DayEntryStatus.values[j['delivery']],
       expense: DayEntryStatus.values[j['expense']],
       settlement: DayEntryStatus.values[j['settlement']],
+      tankDip: DayEntryStatus.values[j['tankDip'] ?? 0],
       submittedAt:
           j['submittedAt'] == null ? null : DateTime.parse(j['submittedAt']),
     );

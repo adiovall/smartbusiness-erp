@@ -3,6 +3,7 @@
 import 'tank_service.dart';
 import 'sale_service.dart';
 import 'delivery_service.dart';
+import 'tank_dip_service.dart';
 import 'debt_service.dart';
 import 'settlement_service.dart';
 import 'expense_service.dart';
@@ -12,9 +13,11 @@ import 'analytics_service.dart';
 import 'reconciliation_service.dart';
 import 'csv_import_service.dart';
 
+
 import '../../features/fuel/repositories/delivery_repo.dart';
 import '../../features/fuel/repositories/debt_repo.dart';
 import '../../features/fuel/repositories/sale_repo.dart';
+import '../../features/fuel/repositories/tank_dip_repo.dart';
 import '../../features/fuel/repositories/tank_repo.dart';
 import '../../features/fuel/repositories/expense_repo.dart';
 import '../../features/fuel/repositories/day_entry_repo.dart';
@@ -86,9 +89,7 @@ class Services {
   static final analytics = AnalyticsService(outboxRepo: outboxRepo);
   static final reconciliation = ReconciliationService(outboxRepo: outboxRepo);
   static final csvImport = CsvImportService(outboxRepo: outboxRepo, tankService: tank);
-  static late ExternalPaymentService external;
-  
-
+  static final tankDip = TankDipService(repo: TankDipRepo());
   static final outbox = OutboxService(
     repo: outboxRepo,
     saleService: sale,
@@ -97,9 +98,11 @@ class Services {
     expenseService: expense,
     settlementService: settlement,
     tankService: tank,
+    tankDipService: tankDip,
     externalPaymentRepo: ExternalPaymentRepo(),
   );
 
+  static late ExternalPaymentService external;
   
 
   // =====================

@@ -11,6 +11,7 @@ import '../widgets/entry_tabs/settlement_tab.dart';
 import '../widgets/entry_tabs/external_payments_tab.dart';
 import '../widgets/tank_levels_perfect.dart';
 import '../widgets/weekly_summary_perfect.dart';
+import '../widgets/entry_tabs/tank_dip_tab.dart';
 
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/day_entry.dart' as de;
@@ -39,9 +40,11 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   int todaySettlementCount = 0;
   int todaySaleCount = 0;
   int todayDeliveryCount = 0;
+  int todayTankDipCount = 0;
   int todayExpenseCount = 0;
 
   bool settlementInProgress = false;
+  bool _hasTankDipDrafts = false;
 
   bool _loading = true;
 
@@ -57,7 +60,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   @override
     void initState() {
       super.initState();
-      tabController = TabController(length: 5, vsync: this);
+      tabController = TabController(length: 6, vsync: this);
     
       // listen to tank updates (for tank widget)
       Services.tank.addListener(_onTankChanged);
@@ -123,6 +126,9 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
   Future<void> _loadWeeklyFromDayEntryCache() async {
     final start = _weekStart(_now);
+
+    // Force reload from DB to ensure cache is fresh
+    await Services.dayEntry.loadWeek(start);
     weeklyStatus.clear();
     daySentStatus.clear();
     
@@ -139,6 +145,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
         'Del': entry?.delivery ?? de.DayEntryStatus.none,
         'Exp': entry?.expense ?? de.DayEntryStatus.none,
         'Set': entry?.settlement ?? de.DayEntryStatus.none,
+        'Dip': entry?.tankDip ?? de.DayEntryStatus.none,
       };
 
       daySentStatus[uiKey] = entry?.submittedAt != null;
@@ -147,30 +154,35 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
 
   Future<void> _initializeData() async {
-  await Services.init();
+    await Services.init();
 
-  await Services.dayEntry.getOrCreate(_businessDateKey(_now));
+    await Services.dayEntry.getOrCreate(_businessDateKey(_now));
 
-  todaysSales = await Services.sale.todayTotalAmount(includeDraft: false);
-  todaysExpense = Services.expense.todayFinalizedTotal;
-  todaysDelivery = await Services.delivery.todayTotalAmount(); 
-  
-  todaySaleCount = await Services.saleRepo.countTodaySubmitted();
-  todayDeliveryCount = await Services.deliveryRepo.countTodaySubmitted();
-  todayExpenseCount = await Services.expenseRepo.countTodaySubmitted();
-  final todayAlreadySent = Services.dayEntry.isDayAlreadySent(_businessDateKey(_now));
-  todaySettlementCount = await Services.settlement.todaySubmittedCount(todayAlreadySent);
+    todaysSales = await Services.sale.todayTotalAmount(includeDraft: false);
+    todaysExpense = Services.expense.todayFinalizedTotal;
+    todaysDelivery = await Services.delivery.todayTotalAmount(); 
+    
+    todaySaleCount = await Services.saleRepo.countTodaySubmitted();
+    todayDeliveryCount = await Services.deliveryRepo.countTodaySubmitted();
+    todayExpenseCount = await Services.expenseRepo.countTodaySubmitted();
+    final todayAlreadySent = Services.dayEntry.isDayAlreadySent(_businessDateKey(_now));
+    todaySettlementCount = await Services.settlement.todaySubmittedCount(todayAlreadySent);
 
+    final dipDraftCount = await Services.tankDip
+    .countForBusinessDate(_businessDateKey(_now));
+    _hasTankDipDrafts = dipDraftCount > 0;
 
-  
+    todayTankDipCount = await Services.tankDip
+        .countSubmittedForBusinessDate(_businessDateKey(_now));
+    
 
-  await _loadWeeklyFromDayEntryCache();
+    await _loadWeeklyFromDayEntryCache();
 
-  if (!mounted) return;
-  setState(() {
-    _loading = false;
-  });
-}
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+    });
+  }
 
   // =====================
   // MARK TAB AS DRAFT
@@ -777,6 +789,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                   tabs: [
                     _tabWithDot('Sale', Services.sale.todayDrafts.isNotEmpty),
                     _tabWithDot('Delivery', Services.delivery.todayDrafts.isNotEmpty),
+                    _tabWithDot('Tank Dip', Services.tankDip.todayDrafts.isNotEmpty),
                     _tabWithDot('Expense', Services.expense.todayDrafts.isNotEmpty),
                     _tabWithDot('Settlement', Services.debt.allDebts.any((d) => !d.settled)),
                     const Tab(text: 'External'),
@@ -794,7 +807,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                       },
                       onDraftMarked: () => _markDraft('Sale'),
                     ),
-                    DeliveryTab(                         // ← currently here, index 2
+                    DeliveryTab(                        
                       onSubmitted: () async {
                         await Services.dayEntry.markSubmitted(_businessDateKey(_now), 'Del');
                         await _initializeData();
@@ -806,6 +819,15 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                       },
                     ),
 
+                    TankDipTab(
+                      onSubmitted: () async {
+                        await Services.dayEntry.markSubmitted(_businessDateKey(_now), 'TankDip'); // ← ADD
+                        await _initializeData();
+                        await _loadWeeklyFromDayEntryCache();
+                        if (mounted) setState(() {});
+                      },
+                    ),
+
                     ExpenseTab(  
                       onSubmitted: () async {
                         await Services.dayEntry.markSubmitted(_businessDateKey(_now), 'Exp');
@@ -814,6 +836,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                         if (mounted) setState(() {});
                       },
                     ),
+
                     SettlementTab(
                       onSubmitted: () async {
                         await Services.dayEntry.markSubmitted(_businessDateKey(_now), 'Set');
@@ -863,22 +886,24 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label),
-          if (hasDraft) ...[
-            const SizedBox(width: 6),
-            Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(
-                color: Colors.amber,
-                shape: BoxShape.circle,
-              ),
+          Flexible(  
+          child: Text(label, overflow: TextOverflow.ellipsis),
+        ),
+        if (hasDraft) ...[
+          const SizedBox(width: 4),
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+              color: Colors.amber,
+              shape: BoxShape.circle,
             ),
-          ],
+          ),
         ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 
   // =====================
   // SUMMARY CARD
@@ -932,6 +957,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           const SizedBox(height: 10),
           _submitCountRow('Sale', todaySaleCount),
           _submitCountRow('Delivery', todayDeliveryCount),
+          _submitCountRow('Tank Dip', todayTankDipCount),
           _submitCountRow('Expense', todayExpenseCount),
           _submitCountRow('Settlement', todaySettlementCount),
         ],

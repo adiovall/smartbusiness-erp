@@ -11,6 +11,7 @@ import 'debt_service.dart';
 import 'expense_service.dart';
 import 'settlement_service.dart';
 import 'tank_service.dart';
+import 'tank_dip_service.dart';
 
 class OutboxService {
   final OutboxRepo repo;
@@ -20,7 +21,8 @@ class OutboxService {
   final ExpenseService expenseService;
   final SettlementService settlementService;
   final TankService tankService;
-  final ExternalPaymentRepo externalPaymentRepo;   // ← ADD
+  final ExternalPaymentRepo externalPaymentRepo;
+  final TankDipService tankDipService;
 
   OutboxService({
     required this.repo,
@@ -30,7 +32,8 @@ class OutboxService {
     required this.expenseService,
     required this.settlementService,
     required this.tankService,
-    required this.externalPaymentRepo,   // ← ADD
+    required this.externalPaymentRepo, 
+    required this.tankDipService,
   });
 
   Future<OutboxRecord> buildAndArchive(String businessDate) async {
@@ -41,6 +44,7 @@ class OutboxService {
     final expenses = await expenseService.allForBusinessDate(businessDate);
     final externalPayments = await externalPaymentRepo.fetchAllForBusinessDate(businessDate); // ← ADD
     final tankSnapshot = tankService.snapshotAll();
+    final tankDips = await tankDipService.allForBusinessDate(businessDate);
 
     final payload = {
       'businessDate': businessDate,
@@ -49,6 +53,7 @@ class OutboxService {
       'deliveries': deliveries.map((d) => d.toJson()).toList(),
       'debts': debts.map((d) => d.toJson()).toList(),
       'settlements': settlements.map((s) => s.toJson()).toList(),
+      'tankDipReadings': tankDips.map((d) => d.toJson()).toList(),
       'expenses': expenses.map((e) => e.toJson()).toList(),
       'externalPayments': externalPayments.map((e) => e.toJson()).toList(), // ← ADD
       'tankSnapshot': tankSnapshot,
@@ -67,6 +72,7 @@ class OutboxService {
     await saleService.archiveForBusinessDate(businessDate);
     await deliveryService.archiveForBusinessDate(businessDate);
     await expenseService.archiveForBusinessDate(businessDate);
+    await tankDipService.archiveForBusinessDate(businessDate);
 
     return record;
   }

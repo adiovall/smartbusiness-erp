@@ -65,7 +65,7 @@ class WeeklySummaryPerfect extends StatelessWidget {
 
   TableRow _headerRow() {
     return TableRow(
-      children: ['', 'Sales', 'Deli', 'Exp', 'St']
+      children: ['', 'Sal', 'Deli', 'Dip', 'Exp', 'St']
           .map(
             (h) => Padding(
               padding: const EdgeInsets.all(4),
@@ -99,8 +99,10 @@ class WeeklySummaryPerfect extends StatelessWidget {
         ),
         _cell(statuses['Sale'] ?? de.DayEntryStatus.none, isSent),
         _cell(statuses['Del'] ?? de.DayEntryStatus.none, isSent),
+        _cell(statuses['Dip'] ?? de.DayEntryStatus.none, isSent),
         _cell(statuses['Exp'] ?? de.DayEntryStatus.none, isSent),
         _cell(statuses['Set'] ?? de.DayEntryStatus.none, isSent),
+        
       ],
     );
   }

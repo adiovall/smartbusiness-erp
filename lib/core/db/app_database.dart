@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 13,
+        version: 14,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -137,6 +137,21 @@ class AppDatabase {
         synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE tank_dips (
+        id TEXT PRIMARY KEY,
+        businessDate TEXT NOT NULL DEFAULT '',
+        fuelType TEXT NOT NULL,
+        openingLevel REAL NOT NULL DEFAULT 0,
+        closingLevel REAL NOT NULL DEFAULT 0,
+        notes TEXT,
+        isSubmitted INTEGER NOT NULL DEFAULT 0,
+        isArchived INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -215,6 +230,23 @@ class AppDatabase {
 
     if (oldVersion < 13) {
       await addCol("ALTER TABLE sales ADD COLUMN isSubmitted INTEGER NOT NULL DEFAULT 0");
+    }
+
+    if (oldVersion < 14) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS tank_dips (
+          id TEXT PRIMARY KEY,
+          businessDate TEXT NOT NULL DEFAULT '',
+          fuelType TEXT NOT NULL,
+          openingLevel REAL NOT NULL DEFAULT 0,
+          closingLevel REAL NOT NULL DEFAULT 0,
+          notes TEXT,
+          isSubmitted INTEGER NOT NULL DEFAULT 0,
+          isArchived INTEGER NOT NULL DEFAULT 0,
+          createdAt TEXT NOT NULL
+        )
+      ''');
+      await addCol("ALTER TABLE day_entries ADD COLUMN tankDip INTEGER NOT NULL DEFAULT 0");
     }
 
   }

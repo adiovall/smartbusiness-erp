@@ -55,6 +55,9 @@ class DayEntryService {
       case 'Del':
         entry.delivery = DayEntryStatus.submitted;
         break;
+      case 'TankDip':
+        entry.tankDip = DayEntryStatus.submitted;
+        break;
       case 'Exp':
         entry.expense = DayEntryStatus.submitted;
         break;
@@ -86,6 +89,9 @@ class DayEntryService {
       case 'Set':
         entry.settlement = _finalize(entry.settlement);
         break;
+      case 'TankDip':
+        entry.tankDip = _finalize(entry.tankDip);
+        break;
       default:
         throw Exception('Unknown section: $section');
     }
@@ -113,6 +119,7 @@ class DayEntryService {
       ..delivery = _finalize(entry.delivery)
       ..expense = _finalize(entry.expense)
       ..settlement = _finalize(entry.settlement)
+      ..tankDip = _finalize(entry.tankDip)
       ..submittedAt = submittedAt;
 
     await repo.upsert(entry);

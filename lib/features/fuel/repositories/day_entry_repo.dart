@@ -57,13 +57,11 @@ class DayEntryRepo {
 
   Future<List<DayEntry>> fetchUnsentDates() async {
     final db = await AppDatabase.instance;
-
     final rows = await db.query(
       'day_entries',
-      where: 'submittedAt IS NULL AND (sale = 2 OR delivery = 2 OR expense = 2 OR settlement = 2)',
+      where: 'submittedAt IS NULL AND (sale = 2 OR delivery = 2 OR expense = 2 OR settlement = 2 OR tankDip = 2)',
       orderBy: 'date DESC',
     );
-
     return rows.map(DayEntry.fromJson).toList();
   }
 }
