@@ -8,6 +8,7 @@ import 'package:temp_fuel_app/core/models/sale_record.dart';
 import 'package:temp_fuel_app/core/services/service_registry.dart';
 
 import '../../../domain/fuel_mapping.dart';
+import 'pump_settings_dialog.dart';
 
 const panelBg = Color(0xFF0f172a);
 const textPrimary = Color(0xFFE5E7EB);
@@ -47,10 +48,10 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
 }
 
 class _SaleTabState extends State<SaleTab> {
-  final pumps = List.generate(12, (i) => 'Pump ${i + 1}');
   final fuels = ['Petrol (PMS)', 'Diesel (AGO)', 'Kerosene (DPK)', 'Gas (LPG)'];
 
-  String pump = 'Pump 1';
+  // pump starts empty — resolved once pump config + fuel selection are known
+  String pump = '';
   String fuel = 'Petrol (PMS)';
 
   final oCtrl = TextEditingController();
@@ -64,6 +65,22 @@ class _SaleTabState extends State<SaleTab> {
   bool _loading = true;
 
   String _abbrFuel(String v) => FuelMapping.abbrFromLabel(v);
+
+  /// Pump numbers assigned to the currently selected fuel type, formatted
+  /// as dropdown labels. Defensively includes the currently-selected
+  /// `pump` value even if it's no longer in the config — e.g. when
+  /// editing an old sale whose pump was later reassigned or removed —
+  /// so the dropdown never ends up with a value that isn't in its items
+  /// (which is exactly the class of crash fixed earlier in this app).
+  List<String> get pumpOptions {
+    final abbr = _abbrFuel(fuel);
+    final nums = Services.pumpConfig.pumpNumbersForFuel(abbr);
+    final opts = nums.map((n) => 'Pump $n').toList();
+    if (pump.isNotEmpty && !opts.contains(pump)) {
+      opts.add(pump);
+    }
+    return opts;
+  }
 
   double _parseNumber(String text) =>
       double.tryParse(text.replaceAll(',', '').trim()) ?? 0.0;
@@ -89,13 +106,14 @@ class _SaleTabState extends State<SaleTab> {
   double get moneyAtHand => cash + pos;
   double get balance => moneyAtHand - totalSold;
 
-  bool get canRecord => liters > 0 && unitPrice > 0;
+  bool get canRecord => pump.isNotEmpty && liters > 0 && unitPrice > 0;
   bool get canSubmit => recorded.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     Services.sale.addListener(_refresh);
+    Services.pumpConfig.addListener(_onPumpConfigChanged);
     _load();
   }
 
@@ -103,7 +121,10 @@ class _SaleTabState extends State<SaleTab> {
     setState(() => _loading = true);
     await Services.sale.refreshToday();
     if (!mounted) return;
-    setState(() => _loading = false);
+    setState(() {
+      _syncPumpDefault();
+      _loading = false;
+    });
   }
 
   void _refresh() {
@@ -111,9 +132,40 @@ class _SaleTabState extends State<SaleTab> {
     setState(() {});
   }
 
+  void _onPumpConfigChanged() {
+    if (!mounted) return;
+    setState(() {
+      _syncPumpDefault();
+    });
+  }
+
+  /// Keeps `pump` valid whenever the available options change — e.g.
+  /// after loading, after the pump settings dialog saves, or after a
+  /// fuel type switch. Never leaves `pump` pointing at a value that
+  /// isn't in the current options list (aside from the edit-safety
+  /// fallback already handled in pumpOptions).
+  void _syncPumpDefault() {
+    final opts = pumpOptions;
+    if (opts.isEmpty) {
+      pump = '';
+    } else if (!opts.contains(pump)) {
+      pump = opts.first;
+    }
+  }
+
+  void _onFuelChanged(String? v) {
+    if (v == null) return;
+    setState(() {
+      fuel = v;
+      final opts = pumpOptions; // reads the now-updated `fuel`
+      pump = opts.isEmpty ? '' : opts.first;
+    });
+  }
+
   @override
   void dispose() {
     Services.sale.removeListener(_refresh);
+    Services.pumpConfig.removeListener(_onPumpConfigChanged);
     oCtrl.dispose();
     cCtrl.dispose();
     priceCtrl.dispose();
@@ -190,8 +242,8 @@ class _SaleTabState extends State<SaleTab> {
     if (p.isSubmitted) return;
     setState(() {
       editingId = p.id;
-      pump = 'Pump ${p.pumpNo}';
       fuel = FuelMapping.labelFromAbbr(p.fuelType);
+      pump = 'Pump ${p.pumpNo}'; // pumpOptions' fallback keeps this valid
       oCtrl.text = p.opening.toStringAsFixed(0);
       cCtrl.text = p.closing.toStringAsFixed(0);
       priceCtrl.text = p.unitPrice.toStringAsFixed(0);
@@ -371,7 +423,7 @@ class _SaleTabState extends State<SaleTab> {
     );
   }
 
-  Widget _dropdown(String label, String v, List<String> items, Function(String?) f) {
+  Widget _dropdown(String label, String? v, List<String> items, Function(String?) f) {
     return DropdownButtonFormField<String>(
       value: v,
       isDense: true,
@@ -404,6 +456,16 @@ class _SaleTabState extends State<SaleTab> {
     );
   }
 
+  Future<void> _openPumpSettings() async {
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => const PumpSettingsDialog(),
+    );
+    if (saved == true && mounted) {
+      setState(() => _syncPumpDefault());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -411,6 +473,7 @@ class _SaleTabState extends State<SaleTab> {
     }
 
     final amountColor = canRecord ? Colors.green : Colors.red;
+    final opts = pumpOptions;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -422,16 +485,42 @@ class _SaleTabState extends State<SaleTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Record Pumps',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Record Pumps',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary),
+                    ),
+                    IconButton(
+                      tooltip: 'Configure Pumps',
+                      icon: const Icon(Icons.settings, color: textSecondary, size: 20),
+                      onPressed: _openPumpSettings,
+                    ),
+                  ],
                 ),
+                if (opts.isEmpty) ...[
+                  const SizedBox(height: 4),
+                  const Text(
+                    'No pumps configured for this fuel type. Tap the settings icon to add pumps.',
+                    style: TextStyle(color: Colors.orange, fontSize: 12),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _dropdown('Pump No', pump, pumps, (v) => setState(() => pump = v!))),
+                    Expanded(
+                      child: _dropdown(
+                        'Pump No',
+                        pump.isEmpty ? null : pump,
+                        opts,
+                        (v) => setState(() => pump = v ?? ''),
+                      ),
+                    ),
                     const SizedBox(width: 10),
-                    Expanded(child: _dropdown('Fuel Type', fuel, fuels, (v) => setState(() => fuel = v!))),
+                    Expanded(
+                      child: _dropdown('Fuel Type', fuel, fuels, _onFuelChanged),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 10),

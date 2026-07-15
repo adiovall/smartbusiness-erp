@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 15,
+        version: 16,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -163,6 +163,12 @@ class AppDatabase {
         createdAt TEXT NOT NULL
       )
     ''');
+    await db.execute('''
+      CREATE TABLE pump_config (
+        pumpNo TEXT PRIMARY KEY,
+        fuelType TEXT NOT NULL
+      )
+    ''');
 
   }
 
@@ -271,6 +277,15 @@ class AppDatabase {
           role TEXT NOT NULL,
           name TEXT,
           createdAt TEXT NOT NULL
+        )
+      ''');
+    }
+    
+    if (oldVersion < 16) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS pump_config (
+          pumpNo TEXT PRIMARY KEY,
+          fuelType TEXT NOT NULL
         )
       ''');
     }

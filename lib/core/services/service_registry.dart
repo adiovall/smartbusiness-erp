@@ -13,6 +13,7 @@ import 'analytics_service.dart';
 import 'reconciliation_service.dart';
 import 'csv_import_service.dart';
 import 'auth_service.dart';
+import 'pump_config_service.dart';
 
 
 import '../../features/fuel/repositories/delivery_repo.dart';
@@ -27,6 +28,8 @@ import '../../features/fuel/repositories/external_payment_repo.dart';
 import '../services/external_payment_service.dart';
 import '../../features/fuel/repositories/outbox_repo.dart';
 import '../../features/auth/repositories/user_repo.dart';
+import '../../features/fuel/repositories/pump_config_repo.dart';
+
 
 
 class Services {
@@ -39,11 +42,13 @@ class Services {
   static final debtRepo = DebtRepo();
   static final deliveryRepo = DeliveryRepo();
   static final saleRepo = SaleRepo();
+  static final pumpConfigRepo = PumpConfigRepo();
   static final expenseRepo = ExpenseRepo();
   static final dayEntryRepo = DayEntryRepo();
   static final settlementRepo = SettlementRepo();
   static final outboxRepo = OutboxRepo();
   static final userRepo = UserRepo();
+
  
 
   // =====================
@@ -57,6 +62,7 @@ class Services {
     tankService: tank,
     saleRepo: saleRepo,
   );
+  static final pumpConfig = PumpConfigService(repo: pumpConfigRepo);
 
   static final expense = ExpenseService(expenseRepo);
 
@@ -120,6 +126,7 @@ class Services {
     await debt.loadFromDb();
     await delivery.loadFromDb();
     await expense.loadFromDb();
+    await pumpConfig.loadFromDb();
 
     final today = DateTime.now();
     final weekStart = today.subtract(Duration(days: today.weekday - 1));
