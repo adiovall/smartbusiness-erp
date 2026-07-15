@@ -682,6 +682,14 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           style: const TextStyle(color: Colors.white60),
         );
 
+        final sendBtn = Services.auth.isOwner
+          ? const SizedBox.shrink()
+          : ElevatedButton.icon(
+              onPressed: _confirmSendData,
+              icon: const Icon(Icons.send, size: 18),
+              label: const Text('Send Data'),
+            );
+
         if (!isTight) {
           return Container(
             color: const Color(0xFF0f172a),
