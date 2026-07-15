@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:intl/intl.dart';          // 
 import '../models/tank_state.dart';
 import '../../features/fuel/repositories/outbox_repo.dart';
+import '../../features/fuel/domain/fuel_mapping.dart'; 
 
 class DayAnalytics {
   final String businessDate;
@@ -372,8 +373,7 @@ class AnalyticsService {
       final sales = (payload['sales'] as List? ?? []);
 
       for (final s in sales) {
-        var fuel = s['fuelType'] as String;
-        if (fuel == 'LPG') fuel = 'Gas';
+        final fuel = FuelMapping.tankKey(s['fuelType'] as String);
 
         final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
         final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
@@ -415,8 +415,7 @@ class AnalyticsService {
       final Map<String, double> totalLitersByFuel = {};
 
       for (final s in sales) {
-        var fuel = (s['fuelType'] as String?) ?? 'Unknown';
-        if (fuel == 'LPG') fuel = 'Gas';
+        final fuel = FuelMapping.tankKey((s['fuelType'] as String?) ?? 'Unknown');
         final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
         final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
 
@@ -556,7 +555,7 @@ Future<List<DebtSummary>> fetchDebtOverview({String? fromDate, String? toDate}) 
       final debts = (payload['debts'] as List? ?? []);
       for (final d in debts) {
         final supplier = (d['supplier'] as String?) ?? 'Unknown';
-        final fuelType = (d['fuelType'] as String?) ?? '';
+        final fuelType = FuelMapping.tankKey((d['fuelType'] as String?) ?? '');
         final amount = (d['amount'] as num?)?.toDouble() ?? 0.0;
         final settled = ((d['settled'] as int?) ?? 0) == 1;
         final key = '$supplier-$fuelType';
@@ -600,7 +599,7 @@ Future<List<DebtSummary>> fetchDebtOverview({String? fromDate, String? toDate}) 
       for (final p in payments) {
         result.add(ExternalPaymentSummary(
           supplier: (p['supplier'] as String?) ?? 'Unknown',
-          fuelType: (p['fuelType'] as String?) ?? '',
+          fuelType: FuelMapping.tankKey((p['fuelType'] as String?) ?? ''),
           kind: (p['kind'] as String?) ?? '',
           amount: (p['amount'] as num?)?.toDouble() ?? 0.0,
         ));

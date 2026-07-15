@@ -59,4 +59,15 @@ class TankDipRepo {
     );
     return (result.first['count'] as int?) ?? 0;
   }
+
+  Future<void> deleteEmptyDrafts(String businessDate) async {
+    final db = await AppDatabase.instance;
+    await db.delete(
+      'tank_dips',
+      where: "businessDate = ? AND isSubmitted = 0 "
+          "AND openingLevel = 0 AND closingLevel = 0 "
+          "AND (notes IS NULL OR notes = '')",
+      whereArgs: [businessDate],
+    );
+  }
 }

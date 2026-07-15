@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:math';
 import '../../features/fuel/repositories/outbox_repo.dart';
+import '../../features/fuel/domain/fuel_mapping.dart';
 
 /// One fuel type's reconciliation result for a single business date.
 class FuelDayReconciliation {
@@ -44,15 +45,6 @@ class ReconciliationService {
   final OutboxRepo outboxRepo;
 
   ReconciliationService({required this.outboxRepo});
-
-  /// Normalizes fuel type naming inconsistencies between record types.
-  /// Sales store gas as "LPG"; tanks and deliveries store it as "Gas".
-  /// Without this, gas sales would silently fail to subtract from the
-  /// gas tank's expected level, making every gas day look like a gap.
-  String _normalizeFuel(String fuel) {
-    if (fuel == 'LPG') return 'Gas';
-    return fuel;
-  }
 
   /// Computes day-over-day reconciliation for every fuel type, across
   /// all sent business dates, oldest first. The first sent date for
@@ -101,21 +93,21 @@ class ReconciliationService {
       // Sum delivered/sold liters per fuel type for this day.
       final Map<String, double> deliveredByFuel = {};
       for (final d in deliveries) {
-        final fuel = _normalizeFuel(d['fuelType'] as String);
+        final fuel = FuelMapping.tankKey(d['fuelType'] as String);
         deliveredByFuel[fuel] =
             (deliveredByFuel[fuel] ?? 0.0) + ((d['liters'] as num?)?.toDouble() ?? 0.0);
       }
 
       final Map<String, double> soldByFuel = {};
       for (final s in sales) {
-        final fuel = _normalizeFuel(s['fuelType'] as String);
+        final fuel = FuelMapping.tankKey(s['fuelType'] as String);
         soldByFuel[fuel] =
             (soldByFuel[fuel] ?? 0.0) + ((s['liters'] as num?)?.toDouble() ?? 0.0);
       }
 
       // For each fuel type present in this day's tank snapshot:
       for (final t in tankSnapshot) {
-        final fuel = t['fuelType'] as String;
+        final fuel = FuelMapping.tankKey(t['fuelType'] as String);
         final actualEnd = (t['currentLevel'] as num).toDouble();
 
         final startLevel = lastKnownLevel[fuel];

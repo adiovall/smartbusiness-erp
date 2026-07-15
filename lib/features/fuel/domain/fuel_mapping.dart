@@ -17,7 +17,7 @@ class FuelMapping {
   static const Map<String, String> _toLabel = {
     'PMS': 'Petrol (PMS)',
     'AGO': 'Diesel (AGO)',
-    'DPK': 'Kerosene (HHK)',
+    'DPK': 'Kerosene (DPK)',
     'Gas': 'Gas (LPG)',
     'LPG': 'Gas (LPG)', // legacy pre-migration rows
   };

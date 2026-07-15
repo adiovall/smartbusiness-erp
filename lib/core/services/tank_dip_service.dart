@@ -56,4 +56,14 @@ class TankDipService {
       createdAt: DateTime.now(),
     )).toList();
   }
+
+  Future<void> purgeEmptyDrafts(String businessDate) async {
+    await repo.deleteEmptyDrafts(businessDate);
+    _todayDrafts.removeWhere((d) =>
+        d.businessDate == businessDate &&
+        d.openingLevel == 0 &&
+        d.closingLevel == 0 &&
+        (d.notes == null || d.notes!.isEmpty) &&
+        !d.isSubmitted);
+  }
 }

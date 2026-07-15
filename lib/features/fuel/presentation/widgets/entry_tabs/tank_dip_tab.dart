@@ -32,6 +32,8 @@ class _TankDipTabState extends State<TankDipTab>
 
   final Map<String, TextEditingController> _openingCtrl = {};
   final Map<String, TextEditingController> _closingCtrl = {};
+  final Map<String, FocusNode> _openingFocus = {};
+  final Map<String, FocusNode> _closingFocus = {};
   final Map<String, String> _notes = {};
 
   static const _panelBg    = Color(0xFF0f172a);
@@ -58,11 +60,36 @@ class _TankDipTabState extends State<TankDipTab>
   void dispose() {
     for (final c in _openingCtrl.values) c.dispose();
     for (final c in _closingCtrl.values) c.dispose();
+    for (final f in _openingFocus.values) f.dispose();
+    for (final f in _closingFocus.values) f.dispose();
     super.dispose();
+  }
+
+  /// Ensures a FocusNode exists for this fuel type's opening/closing
+  /// fields, and wires it to autosave on blur (focus lost). This is
+  /// what lets a typed-but-not-Enter-confirmed value survive a tab
+  /// switch, since drafts are no longer blanket-saved on load.
+  void _ensureFocusNodes(TankDipRecord d) {
+    if (!_openingFocus.containsKey(d.fuelType)) {
+      final node = FocusNode();
+      node.addListener(() {
+        if (!node.hasFocus) _saveDraft(d);
+      });
+      _openingFocus[d.fuelType] = node;
+    }
+    if (!_closingFocus.containsKey(d.fuelType)) {
+      final node = FocusNode();
+      node.addListener(() {
+        if (!node.hasFocus) _saveDraft(d);
+      });
+      _closingFocus[d.fuelType] = node;
+    }
   }
 
   Future<void> _loadDrafts() async {
     setState(() => _loading = true);
+
+    await Services.tankDip.purgeEmptyDrafts(_businessDate);
 
     var drafts = await Services.tankDip.allForBusinessDate(_businessDate);
 
@@ -78,7 +105,12 @@ class _TankDipTabState extends State<TankDipTab>
           businessDate: _businessDate,
           fuelTypes: fuelTypes,
         );
-        for (final d in drafts) await Services.tankDip.saveDraft(d);
+        // NOTE: these are in-memory placeholders only — do NOT persist
+        // here. Saving on load would write empty rows to `tank_dips`
+        // on every tab visit, which made the "unsubmitted drafts"
+        // indicator stick even when the user never entered anything.
+        // Real persistence happens in _saveDraft(), triggered by
+        // field blur (see _ensureFocusNodes) or the notes dialog.
       } else {
         // Already submitted — generate display-only rows (not saved to DB)
         final fuelTypes = Services.tank.allTanks
@@ -102,6 +134,7 @@ class _TankDipTabState extends State<TankDipTab>
       if (d.openingLevel > 0) _openingCtrl[d.fuelType]!.text = d.openingLevel.toStringAsFixed(0);
       if (d.closingLevel > 0) _closingCtrl[d.fuelType]!.text = d.closingLevel.toStringAsFixed(0);
       _notes[d.fuelType] = d.notes ?? '';
+      _ensureFocusNodes(d);
     }
 
     if (!mounted) return;
@@ -171,6 +204,13 @@ class _TankDipTabState extends State<TankDipTab>
     final opening = double.tryParse(_openingCtrl[record.fuelType]?.text.trim() ?? '') ?? 0.0;
     final closing = double.tryParse(_closingCtrl[record.fuelType]?.text.trim() ?? '') ?? 0.0;
     final notes = _notes[record.fuelType]?.trim();
+
+    // Skip persisting a still-empty row — avoids writing a no-op
+    // 0/0 row to the DB purely from a focus-in/focus-out with no
+    // actual input, which would reintroduce the original bug.
+    if (opening <= 0 && closing <= 0 && (notes == null || notes.isEmpty)) {
+      return;
+    }
 
     final updated = record.copyWith(
       openingLevel: opening,
@@ -436,6 +476,7 @@ class _TankDipTabState extends State<TankDipTab>
         // Opening
         Expanded(child: _dipField(
           controller: _openingCtrl[d.fuelType]!,
+          focusNode: _openingFocus[d.fuelType]!,
           hint: 'Opening',
           capacity: capacity,
           onChanged: (_) => setState(() {}),
@@ -445,6 +486,7 @@ class _TankDipTabState extends State<TankDipTab>
         // Closing
         Expanded(child: _dipField(
           controller: _closingCtrl[d.fuelType]!,
+          focusNode: _closingFocus[d.fuelType]!,
           hint: 'Closing',
           capacity: capacity,
           onChanged: (_) => setState(() {}),
@@ -469,6 +511,7 @@ class _TankDipTabState extends State<TankDipTab>
 
   Widget _dipField({
     required TextEditingController controller,
+    required FocusNode focusNode,
     required String hint,
     required double capacity,
     required ValueChanged<String> onChanged,
@@ -476,6 +519,7 @@ class _TankDipTabState extends State<TankDipTab>
   }) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       style: const TextStyle(
