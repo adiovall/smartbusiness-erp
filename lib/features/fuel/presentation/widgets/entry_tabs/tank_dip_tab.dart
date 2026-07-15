@@ -67,31 +67,40 @@ class _TankDipTabState extends State<TankDipTab>
     var drafts = await Services.tankDip.allForBusinessDate(_businessDate);
 
     if (drafts.isEmpty) {
-      // Only auto-generate if tank dip hasn't been submitted today
       final entry = await Services.dayEntry.getOrCreate(_businessDate);
       final alreadySubmitted = entry.tankDip == de.DayEntryStatus.submitted
           || entry.submittedAt != null;
-      debugPrint('alreadySubmitted: $alreadySubmitted');
 
       if (!alreadySubmitted) {
         final fuelTypes = Services.tank.allTanks
-            .map((t) => t.fuelType)
-            .toList()..sort();
+            .map((t) => t.fuelType).toList()..sort();
         drafts = Services.tankDip.generateDrafts(
           businessDate: _businessDate,
           fuelTypes: fuelTypes,
         );
         for (final d in drafts) await Services.tankDip.saveDraft(d);
+      } else {
+        // Already submitted — generate display-only rows (not saved to DB)
+        final fuelTypes = Services.tank.allTanks
+            .map((t) => t.fuelType).toList()..sort();
+        drafts = fuelTypes.map((fuel) => TankDipRecord(
+          id: 'display_$fuel',
+          businessDate: _businessDate,
+          fuelType: fuel,
+          openingLevel: 0.0,
+          closingLevel: 0.0,
+          createdAt: DateTime.now(),
+          isSubmitted: true,
+        )).toList();
       }
     }
 
     for (final d in drafts) {
       _openingCtrl[d.fuelType] ??= TextEditingController();
       _closingCtrl[d.fuelType] ??= TextEditingController();
-      _openingCtrl[d.fuelType]!.text =
-          d.openingLevel > 0 ? d.openingLevel.toStringAsFixed(0) : '';
-      _closingCtrl[d.fuelType]!.text =
-          d.closingLevel > 0 ? d.closingLevel.toStringAsFixed(0) : '';
+      // Don't overwrite if already has values
+      if (d.openingLevel > 0) _openingCtrl[d.fuelType]!.text = d.openingLevel.toStringAsFixed(0);
+      if (d.closingLevel > 0) _closingCtrl[d.fuelType]!.text = d.closingLevel.toStringAsFixed(0);
       _notes[d.fuelType] = d.notes ?? '';
     }
 
@@ -295,12 +304,21 @@ class _TankDipTabState extends State<TankDipTab>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                        color: _drafts.any((d) => d.isSubmitted)
+                            ? Colors.green.withOpacity(0.15)
+                            : Colors.orange.withOpacity(0.15),
+                        border: Border.all(
+                          color: _drafts.any((d) => d.isSubmitted)
+                              ? Colors.green.withOpacity(0.4)
+                              : Colors.orange.withOpacity(0.4),
+                        ),
                       ),
-                      child: Text("Today's Drafts (${_drafts.length})",
-                          style: const TextStyle(color: Colors.orange,
+                      child: Text(
+                        _drafts.any((d) => d.isSubmitted)
+                            ? 'Submitted ✓'
+                            : "Today's Drafts (${_drafts.length})",
+                          style: TextStyle(
+                            color: _drafts.any((d) => d.isSubmitted) ? Colors.green : Colors.orange,
                               fontSize: 11, fontWeight: FontWeight.w600)),
                     ),
                   ]),

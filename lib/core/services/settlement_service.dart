@@ -40,29 +40,30 @@ class SettlementService {
 
     final debt = debtService.getDebt(supplier, fuelType);
 
+    // Prevent overpayment — can't settle more than what's owed
+    if (debt != null && total > debt.amount) {
+      throw Exception(
+        'Overpayment blocked: outstanding debt is ₦${debt.amount.toStringAsFixed(0)}, '
+        'but you entered ₦${total.toStringAsFixed(0)}. '
+        'Reduce the settlement amount.'
+      );
+    }
+
     double remainingDebt = 0;
     double credit = 0;
 
     if (debt != null) {
       if (total >= debt.amount) {
-        credit = total - debt.amount;
+        credit = total - debt.amount; // will be 0 now since total <= debt.amount
         await debtService.clearDebt(debt.id);
       } else {
         remainingDebt = debt.amount - total;
         await debtService.updateDebt(debt.id, remainingDebt);
       }
     } else {
-      credit = total;
+      credit = total; // no debt found — treated as credit
     }
 
-    if (credit > 0) {
-      await deliveryService.addCredit(
-        supplier: supplier,
-        fuelType: fuelType,
-        amount: credit,
-        source: 'Settlement',
-      );
-    }
 
     final record = SettlementRecord(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
