@@ -1,13 +1,11 @@
-// // lib/main.dart
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'features/fuel/presentation/screens/fuel_admin_final.dart';
+import 'features/auth/presentation/screens/auth_gate.dart';
 
 void main() {
-  // ✅ REQUIRED FOR SQLITE ON WINDOWS
   if (Platform.isWindows) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -23,7 +21,7 @@ class SmartBusinessApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'SmartBusiness ERP',
+      title: 'FuelFlow ERP',
       theme: ThemeData(
         useMaterial3: true,
         fontFamily: 'Segoe UI',
@@ -33,7 +31,7 @@ class SmartBusinessApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color(0xFF0f172a),
       ),
-      home: const FuelAdminFinal(),
+      home: const AuthGate(),
     );
   }
 }

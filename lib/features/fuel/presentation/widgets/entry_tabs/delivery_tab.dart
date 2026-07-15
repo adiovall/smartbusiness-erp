@@ -954,7 +954,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
                       child: OutlinedButton.icon(
                         onPressed: _drafts.isNotEmpty ? _clearAllDrafts : null,
                         icon: const Icon(Icons.delete_sweep),
-                        label: const Text('Clear Drafts'),
+                        label: const Text('Clear'),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -962,7 +962,7 @@ class _DeliveryTabState extends State<DeliveryTab> {
                       child: ElevatedButton.icon(
                         onPressed: _drafts.isNotEmpty ? _submitDeliveries : null,
                         icon: const Icon(Icons.check_circle),
-                        label: const Text('Submit Delivery'),
+                        label: const Text('Submit'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           minimumSize: const Size.fromHeight(48),

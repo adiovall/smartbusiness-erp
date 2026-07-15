@@ -12,6 +12,7 @@ import '../widgets/entry_tabs/external_payments_tab.dart';
 import '../widgets/tank_levels_perfect.dart';
 import '../widgets/weekly_summary_perfect.dart';
 import '../widgets/entry_tabs/tank_dip_tab.dart';
+import '../../../auth/presentation/screens/manage_staff_screen.dart';
 
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/day_entry.dart' as de;
@@ -597,20 +598,44 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
             child: Column(
               children: [
                 const SizedBox(height: 24),
-                _sideIcon(Icons.local_gas_station, true),
-                _sideIcon(Icons.store_mall_directory),
-                _sideIcon(Icons.water_drop),
-                _sideIcon(Icons.analytics, false, () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => AnalyticsScreen(onBack: () => Navigator.pop(context)),
-                    ),
-                  );
-                }),
-                const Spacer(),
-                _sideIcon(Icons.settings),
-                const SizedBox(height: 24),
+                  _sideIcon(Icons.local_gas_station, true),
+                  _sideIcon(Icons.store_mall_directory),
+                  _sideIcon(Icons.water_drop),
+                  if (Services.auth.isOwner)
+                    _sideIcon(Icons.analytics, false, () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AnalyticsScreen(onBack: () => Navigator.pop(context)),
+                        ),
+                      );
+                    }),
+                  if (Services.auth.isOwner)
+                    _sideIcon(Icons.badge, false, () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ManageStaffScreen(onBack: () => Navigator.pop(context)),
+                        ),
+                      );
+                    }),
+                  const Spacer(),
+                  _sideIcon(Icons.settings),
+                  _sideIcon(Icons.logout, false, () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        backgroundColor: const Color(0xFF0f172a),
+                        title: const Text('Sign out?', style: TextStyle(color: Colors.white)),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sign Out')),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) Services.auth.logout();
+                  }),
+                  const SizedBox(height: 24),
               ],
             ),
           ),
@@ -640,21 +665,21 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
         final isTight = c.maxWidth < 900;
 
         final title = const Text(
-          'SmartBusiness ERP',
+          'FuelFlow ERP',
           style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
         );
 
-        final welcome = const Text('Welcome admin', style: TextStyle(color: Colors.white70));
+        final currentUser = Services.auth.currentUser;
+        final roleLabel = currentUser?.isOwner == true ? 'Owner' : 'Manager';
+        final displayName = (currentUser?.name?.isNotEmpty ?? false)
+            ? currentUser!.name!
+            : (currentUser?.email ?? '');
+        final welcome = Text('Welcome $displayName — $roleLabel',
+            style: const TextStyle(color: Colors.white70));
 
         final date = Text(
           DateFormat('EEEE, MMM d, yyyy').format(_now),
           style: const TextStyle(color: Colors.white60),
-        );
-
-        final sendBtn = ElevatedButton.icon(
-          onPressed: _confirmSendData,
-          icon: const Icon(Icons.send, size: 18),
-          label: const Text('Send Data'),
         );
 
         if (!isTight) {

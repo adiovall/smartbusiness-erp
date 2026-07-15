@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 14,
+        version: 15,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -152,6 +152,18 @@ class AppDatabase {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        passwordHash TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        role TEXT NOT NULL,
+        name TEXT,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -249,5 +261,22 @@ class AppDatabase {
       await addCol("ALTER TABLE day_entries ADD COLUMN tankDip INTEGER NOT NULL DEFAULT 0");
     }
 
+    if (oldVersion < 15) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          passwordHash TEXT NOT NULL,
+          salt TEXT NOT NULL,
+          role TEXT NOT NULL,
+          name TEXT,
+          createdAt TEXT NOT NULL
+        )
+      ''');
+    }
+
   }
+
+
+  
 }

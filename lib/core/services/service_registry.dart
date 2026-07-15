@@ -12,6 +12,7 @@ import 'outbox_service.dart';
 import 'analytics_service.dart';
 import 'reconciliation_service.dart';
 import 'csv_import_service.dart';
+import 'auth_service.dart';
 
 
 import '../../features/fuel/repositories/delivery_repo.dart';
@@ -25,6 +26,8 @@ import '../../features/fuel/repositories/settlement_repo.dart';
 import '../../features/fuel/repositories/external_payment_repo.dart';
 import '../services/external_payment_service.dart';
 import '../../features/fuel/repositories/outbox_repo.dart';
+import '../../features/auth/repositories/user_repo.dart';
+
 
 class Services {
   Services._();
@@ -40,11 +43,13 @@ class Services {
   static final dayEntryRepo = DayEntryRepo();
   static final settlementRepo = SettlementRepo();
   static final outboxRepo = OutboxRepo();
+  static final userRepo = UserRepo();
  
 
   // =====================
   // SERVICES
   // =====================
+  static final auth = AuthService(repo: userRepo);
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
   

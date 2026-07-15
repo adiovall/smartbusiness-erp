@@ -293,21 +293,22 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
                 onChanged: _onTankChanged,
               );
 
-              // NEW: button toggles between "Set Tank" and "Save"
-              // depending on _editingTank.
-              final actionBtn = SizedBox(
-                height: 44,
-                child: ElevatedButton.icon(
-                  onPressed: _editingTank ? _saveChanges : _startEditingTank,
-                  icon: Icon(_editingTank ? Icons.save : Icons.tune, size: 18),
-                  label: Text(_editingTank ? 'Save' : 'Set Tank'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _editingTank ? Colors.green : Colors.orange,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-              );
+              // Owner-only: Manager can view tank levels but not edit capacity/level.
+              final actionBtn = Services.auth.isOwner
+                  ? SizedBox(
+                      height: 44,
+                      child: ElevatedButton.icon(
+                        onPressed: _editingTank ? _saveChanges : _startEditingTank,
+                        icon: Icon(_editingTank ? Icons.save : Icons.tune, size: 18),
+                        label: Text(_editingTank ? 'Save' : 'Set Tank'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _editingTank ? Colors.green : Colors.orange,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink();
 
               if (!tight) {
                 return Row(
