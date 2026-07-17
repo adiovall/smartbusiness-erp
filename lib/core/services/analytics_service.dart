@@ -1,10 +1,7 @@
-// lib/core/services/analytics_service.dart
-
 import 'dart:convert';
-import 'package:intl/intl.dart';          // 
-import '../models/tank_state.dart';
-import '../../features/fuel/repositories/outbox_repo.dart';
-import '../../features/fuel/domain/fuel_mapping.dart'; 
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../features/fuel/domain/fuel_mapping.dart';
 
 class DayAnalytics {
   final String businessDate;
@@ -27,35 +24,24 @@ class FuelPerformance {
   final double revenue;
   final double liters;
 
-  FuelPerformance({
-    required this.fuelType,
-    required this.revenue,
-    required this.liters,
-  });
+  FuelPerformance({required this.fuelType, required this.revenue, required this.liters});
 }
 
-/// Aggregated sales performance for ONE pump number, across the
-/// selected date range.
 class PumpPerformance {
   final String pumpNo;
   final double revenue;
   final double liters;
 
-  PumpPerformance({
-    required this.pumpNo,
-    required this.revenue,
-    required this.liters,
-  });
+  PumpPerformance({required this.pumpNo, required this.revenue, required this.liters});
 }
 
 class FuelPriceTrend {
   final String businessDate;
-  final Map<String, double> avgPriceByFuel; // fuelType → avg unit price that day
+  final Map<String, double> avgPriceByFuel;
 
   FuelPriceTrend({required this.businessDate, required this.avgPriceByFuel});
 }
 
-/// Top supplier by total delivery value over the selected period.
 class SupplierPerformance {
   final String supplier;
   final double totalDeliveryValue;
@@ -68,7 +54,6 @@ class SupplierPerformance {
   });
 }
 
-/// Expense total per category over the selected period.
 class ExpenseCategoryTotal {
   final String category;
   final double amount;
@@ -76,7 +61,6 @@ class ExpenseCategoryTotal {
   ExpenseCategoryTotal({required this.category, required this.amount});
 }
 
-/// Debt summary per supplier over the selected period.
 class DebtSummary {
   final String supplier;
   final String fuelType;
@@ -121,6 +105,24 @@ class CashFlowSummary {
   double get netCashFlow => salesRevenue - expenses - debtSettlements - externalPayments;
 }
 
+/// Replaces the local TankState dependency for analytics purposes —
+/// this is the latest known tank reading as reported to Supabase,
+/// not live local state. Used so a second device (e.g. Owner's own
+/// machine) sees real tank levels without needing local data.
+class TankLevelSnapshot {
+  final String fuelType;
+  final double capacity;
+  final double currentLevel;
+  final double percentage;
+
+  TankLevelSnapshot({
+    required this.fuelType,
+    required this.capacity,
+    required this.currentLevel,
+    required this.percentage,
+  });
+}
+
 enum InsightType { warning, positive, info }
 
 class AiInsight {
@@ -133,7 +135,7 @@ class AiInsight {
 
 class AiInsightEngine {
   static List<AiInsight> generate({
-    required List<TankState> tanks,
+    required List<TankLevelSnapshot> tanks,
     required List<DayAnalytics> currentPeriod,
     required List<DayAnalytics> previousPeriod,
     required List<ExpenseCategoryTotal> expenseBreakdown,
@@ -147,7 +149,6 @@ class AiInsightEngine {
     final insights = <AiInsight>[];
     final money = NumberFormat.currency(locale: 'en_NG', symbol: '₦', decimalDigits: 0);
 
-    // ── 1. TANK LOW WARNING ──────────────────────────────────────────
     for (final tank in tanks) {
       if (tank.percentage < 20) {
         insights.add(AiInsight(
@@ -164,7 +165,6 @@ class AiInsightEngine {
       }
     }
 
-    // ── 2. SHORTAGE TREND ───────────────────────────────────────────
     final currentShortage = expenseBreakdown
         .where((e) => e.category.toLowerCase().contains('shortage'))
         .fold(0.0, (s, e) => s + e.amount);
@@ -195,7 +195,6 @@ class AiInsightEngine {
       ));
     }
 
-    // ── 3. REVENUE GROWTH ───────────────────────────────────────────
     final currentRevenue = currentPeriod.fold(0.0, (s, d) => s + d.revenue);
     final previousRevenue = previousPeriod.fold(0.0, (s, d) => s + d.revenue);
 
@@ -216,7 +215,6 @@ class AiInsightEngine {
       }
     }
 
-    // ── 4. OUTSTANDING DEBT ALERT ───────────────────────────────────
     final unpaidDebts = debts.where((d) => !d.settled && d.amount > 0).toList();
     for (final d in unpaidDebts.take(3)) {
       insights.add(AiInsight(
@@ -226,7 +224,6 @@ class AiInsightEngine {
       ));
     }
 
-    // ── 5. BEST PERFORMING PUMP ─────────────────────────────────────
     if (pumpPerformance.isNotEmpty) {
       final best = pumpPerformance.reduce((a, b) => a.revenue > b.revenue ? a : b);
       final total = pumpPerformance.fold(0.0, (s, p) => s + p.revenue);
@@ -240,9 +237,8 @@ class AiInsightEngine {
       }
     }
 
-    // ── 6. DOMINANT FUEL ────────────────────────────────────────────
     if (fuelPerformance.isNotEmpty) {
-      final best = fuelPerformance.first; // already sorted by revenue
+      final best = fuelPerformance.first;
       final total = fuelPerformance.fold(0.0, (s, f) => s + f.revenue);
       final share = total > 0 ? (best.revenue / total * 100).round() : 0;
       if (share >= 50) {
@@ -254,13 +250,7 @@ class AiInsightEngine {
       }
     }
 
-    // ── 7. DELIVERY FREQUENCY ALERT ─────────────────────────────────
-    // Uses external payments as a proxy for last delivery date per supplier,
-    // since deliveries are archived after send and ExternalPayments track them.
     if (externalPayments.isNotEmpty) {
-      // Group by supplier to find who appears least recently.
-      // We flag if a supplier who has delivered before hasn't appeared
-      // in the current period at all — implying a gap.
       final suppliersThisPeriod = externalPayments.map((e) => e.supplier).toSet();
       final allKnownSuppliers = debts.map((d) => d.supplier).toSet();
 
@@ -279,196 +269,191 @@ class AiInsightEngine {
   }
 }
 
-
+/// Reads live from Supabase instead of the local outbox — this is
+/// what makes Analytics work correctly on a second device (e.g.
+/// Owner's own machine) that has no local sales/delivery data of its
+/// own. Every public method here keeps the exact same signature and
+/// return type as the old local-outbox version, so none of the view
+/// files (trends_view, insight_view, reconciliation_view) need to
+/// change to use this.
 class AnalyticsService {
-  final OutboxRepo outboxRepo;
+  final SupabaseClient _client = Supabase.instance.client;
 
-  AnalyticsService({required this.outboxRepo});
+  bool _inRange(String date, String? from, String? to) {
+    if (from != null && date.compareTo(from) < 0) return false;
+    if (to != null && date.compareTo(to) > 0) return false;
+    return true;
+  }
 
   Future<List<DayAnalytics>> fetchTrend({String? fromDate, String? toDate}) async {
-    final records = await outboxRepo.fetchAll();
+    final sales = await _client.from('sales').select('business_date, total_amount');
+    final expenses = await _client.from('expenses').select('business_date, amount');
+    final deliveries = await _client.from('deliveries').select('business_date, total_cost');
 
-    final filtered = records.where((r) {
-      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-      return true;
-    }).toList();
+    final Map<String, double> revenueByDate = {};
+    final Map<String, double> expenseByDate = {};
+    final Map<String, double> deliveryByDate = {};
 
-    final list = filtered.map((r) {
-      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
+    for (final s in sales) {
+      final d = s['business_date'] as String;
+      if (!_inRange(d, fromDate, toDate)) continue;
+      revenueByDate[d] = (revenueByDate[d] ?? 0) + ((s['total_amount'] as num?)?.toDouble() ?? 0);
+    }
+    for (final e in expenses) {
+      final d = e['business_date'] as String;
+      if (!_inRange(d, fromDate, toDate)) continue;
+      expenseByDate[d] = (expenseByDate[d] ?? 0) + ((e['amount'] as num?)?.toDouble() ?? 0);
+    }
+    for (final del in deliveries) {
+      final d = del['business_date'] as String;
+      if (!_inRange(d, fromDate, toDate)) continue;
+      deliveryByDate[d] = (deliveryByDate[d] ?? 0) + ((del['total_cost'] as num?)?.toDouble() ?? 0);
+    }
 
-      final sales = (payload['sales'] as List? ?? []);
-      final expenses = (payload['expenses'] as List? ?? []);
-      final deliveries = (payload['deliveries'] as List? ?? []);
+    final allDates = {...revenueByDate.keys, ...expenseByDate.keys, ...deliveryByDate.keys}.toList()..sort();
 
-      final revenue = sales.fold<double>(
-        0.0,
-        (sum, s) => sum + ((s['totalAmount'] as num?)?.toDouble() ?? 0.0),
-      );
-      final expense = expenses.fold<double>(
-        0.0,
-        (sum, e) => sum + ((e['amount'] as num?)?.toDouble() ?? 0.0),
-      );
-      final deliveryCost = deliveries.fold<double>(
-        0.0,
-        (sum, d) => sum + ((d['totalCost'] as num?)?.toDouble() ?? 0.0),
-      );
-
+    return allDates.map((d) {
+      final revenue = revenueByDate[d] ?? 0.0;
+      final expense = expenseByDate[d] ?? 0.0;
+      final deliveryCost = deliveryByDate[d] ?? 0.0;
       return DayAnalytics(
-        businessDate: r.businessDate,
+        businessDate: d,
         revenue: revenue,
         expense: expense,
         deliveryCost: deliveryCost,
         net: revenue - expense,
       );
     }).toList();
-
-    list.sort((a, b) => a.businessDate.compareTo(b.businessDate));
-    return list;
   }
 
-  /// Returns raw outbox records as maps for direct payload inspection.
-  /// Used by Reconciliation's pump table to read opening/closing meter readings.
-  Future<List<Map<String, dynamic>>> fetchRawOutbox(
-      {String? fromDate, String? toDate}) async {
-    final records = await outboxRepo.fetchAll();
-    return records
-        .where((r) {
-          if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-          if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-          return true;
-        })
-        .map((r) => {
-              'businessDate': r.businessDate,
-              'payloadJson': r.payloadJson,
-            })
+  /// Kept for compatibility with reconciliation_view.dart's pump table,
+  /// which decodes this exact shape (businessDate + payloadJson with a
+  /// 'sales' list using the original camelCase field names).
+  Future<List<Map<String, dynamic>>> fetchRawOutbox({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('sales').select();
+    final Map<String, List<Map<String, dynamic>>> byDate = {};
+
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      byDate.putIfAbsent(date, () => []).add({
+        'pumpNo': r['pump_no'],
+        'fuelType': r['fuel_type'],
+        'opening': r['opening'],
+        'closing': r['closing'],
+        'liters': r['liters'],
+        'unitPrice': r['unit_price'],
+        'totalAmount': r['total_amount'],
+      });
+    }
+
+    return byDate.entries
+        .map((e) => {'businessDate': e.key, 'payloadJson': jsonEncode({'sales': e.value})})
         .toList();
   }
 
+  /// Best-effort combined view of one business date across all tables.
+  /// No confirmed caller in the current view files, kept for parity
+  /// with the old API in case something elsewhere relies on it.
   Future<Map<String, dynamic>?> fetchDayDetail(String businessDate) async {
-    final record = await outboxRepo.fetchByBusinessDate(businessDate);
-    if (record == null) return null;
-    return jsonDecode(record.payloadJson) as Map<String, dynamic>;
+    final sales = await _client.from('sales').select().eq('business_date', businessDate);
+    final deliveries = await _client.from('deliveries').select().eq('business_date', businessDate);
+    final expenses = await _client.from('expenses').select().eq('business_date', businessDate);
+    final settlements = await _client.from('settlements').select().eq('business_date', businessDate);
+    final debts = await _client.from('debts').select().eq('business_date', businessDate);
+    final externalPayments = await _client.from('external_payments').select().eq('business_date', businessDate);
+    final tankSnapshot = await _client.from('tank_snapshots').select().eq('business_date', businessDate);
+
+    if (sales.isEmpty && deliveries.isEmpty && expenses.isEmpty && settlements.isEmpty) return null;
+
+    return {
+      'businessDate': businessDate,
+      'sales': sales,
+      'deliveries': deliveries,
+      'expenses': expenses,
+      'settlements': settlements,
+      'debts': debts,
+      'externalPayments': externalPayments,
+      'tankSnapshot': tankSnapshot,
+    };
   }
 
   Future<List<String>> fetchAvailableDates() async {
-    final records = await outboxRepo.fetchAll();
-    return records.map((r) => r.businessDate).toList();
+    final rows = await _client.from('sales').select('business_date');
+    final dates = rows.map((r) => r['business_date'] as String).toSet().toList();
+    dates.sort();
+    return dates;
   }
 
   Future<List<FuelPerformance>> fetchFuelPerformance({String? fromDate, String? toDate}) async {
-    final records = await outboxRepo.fetchAll();
-
-    final filtered = records.where((r) {
-      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-      return true;
-    }).toList();
+    final rows = await _client.from('sales').select('business_date, fuel_type, total_amount, liters');
 
     final Map<String, double> revenueByFuel = {};
     final Map<String, double> litersByFuel = {};
 
-    for (final r in filtered) {
-      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-      final sales = (payload['sales'] as List? ?? []);
-
-      for (final s in sales) {
-        final fuel = FuelMapping.tankKey(s['fuelType'] as String);
-
-        final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
-        final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
-
-        revenueByFuel[fuel] = (revenueByFuel[fuel] ?? 0.0) + amount;
-        litersByFuel[fuel] = (litersByFuel[fuel] ?? 0.0) + liters;
-      }
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final fuel = FuelMapping.tankKey(r['fuel_type'] as String);
+      revenueByFuel[fuel] = (revenueByFuel[fuel] ?? 0) + ((r['total_amount'] as num?)?.toDouble() ?? 0);
+      litersByFuel[fuel] = (litersByFuel[fuel] ?? 0) + ((r['liters'] as num?)?.toDouble() ?? 0);
     }
 
-    final result = revenueByFuel.keys.map((fuel) {
-      return FuelPerformance(
-        fuelType: fuel,
-        revenue: revenueByFuel[fuel] ?? 0.0,
-        liters: litersByFuel[fuel] ?? 0.0,
-      );
-    }).toList();
-
+    final result = revenueByFuel.keys
+        .map((f) => FuelPerformance(fuelType: f, revenue: revenueByFuel[f]!, liters: litersByFuel[f] ?? 0))
+        .toList();
     result.sort((a, b) => b.revenue.compareTo(a.revenue));
     return result;
   }
 
   Future<List<FuelPriceTrend>> fetchPriceTrend({String? fromDate, String? toDate}) async {
-    final records = await outboxRepo.fetchAll();
+    final rows = await _client.from('sales').select('business_date, fuel_type, total_amount, liters');
 
-    final filtered = records.where((r) {
-      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-      return true;
-    }).toList();
+    final Map<String, Map<String, double>> amountByDateFuel = {};
+    final Map<String, Map<String, double>> litersByDateFuel = {};
 
-    filtered.sort((a, b) => a.businessDate.compareTo(b.businessDate));
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final fuel = FuelMapping.tankKey((r['fuel_type'] as String?) ?? 'Unknown');
+      amountByDateFuel.putIfAbsent(date, () => {});
+      litersByDateFuel.putIfAbsent(date, () => {});
+      amountByDateFuel[date]![fuel] = (amountByDateFuel[date]![fuel] ?? 0) + ((r['total_amount'] as num?)?.toDouble() ?? 0);
+      litersByDateFuel[date]![fuel] = (litersByDateFuel[date]![fuel] ?? 0) + ((r['liters'] as num?)?.toDouble() ?? 0);
+    }
 
-    return filtered.map((r) {
-      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-      final sales = (payload['sales'] as List? ?? []);
+    final dates = amountByDateFuel.keys.toList()..sort();
 
-      // Group sales by fuel type, compute weighted average unit price
-      final Map<String, double> totalAmountByFuel = {};
-      final Map<String, double> totalLitersByFuel = {};
-
-      for (final s in sales) {
-        final fuel = FuelMapping.tankKey((s['fuelType'] as String?) ?? 'Unknown');
-        final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
-        final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
-
-        totalAmountByFuel[fuel] = (totalAmountByFuel[fuel] ?? 0.0) + amount;
-        totalLitersByFuel[fuel] = (totalLitersByFuel[fuel] ?? 0.0) + liters;
-      }
-
+    return dates.map((date) {
+      final amounts = amountByDateFuel[date]!;
+      final liters = litersByDateFuel[date]!;
       final avgPrices = <String, double>{};
-      for (final fuel in totalAmountByFuel.keys) {
-        final liters = totalLitersByFuel[fuel] ?? 0.0;
-        avgPrices[fuel] = liters > 0 ? (totalAmountByFuel[fuel]! / liters) : 0.0;
+      for (final fuel in amounts.keys) {
+        final l = liters[fuel] ?? 0.0;
+        avgPrices[fuel] = l > 0 ? amounts[fuel]! / l : 0.0;
       }
-
-      return FuelPriceTrend(businessDate: r.businessDate, avgPriceByFuel: avgPrices);
+      return FuelPriceTrend(businessDate: date, avgPriceByFuel: avgPrices);
     }).toList();
   }
 
   Future<List<PumpPerformance>> fetchPumpPerformance({String? fromDate, String? toDate}) async {
-    final records = await outboxRepo.fetchAll();
-
-    final filtered = records.where((r) {
-      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-      return true;
-    }).toList();
+    final rows = await _client.from('sales').select('business_date, pump_no, total_amount, liters');
 
     final Map<String, double> revenueByPump = {};
     final Map<String, double> litersByPump = {};
 
-    for (final r in filtered) {
-      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-      final sales = (payload['sales'] as List? ?? []);
-
-      for (final s in sales) {
-        final pump = (s['pumpNo'] as String?) ?? 'Unknown';
-        final amount = (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
-        final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
-
-        revenueByPump[pump] = (revenueByPump[pump] ?? 0.0) + amount;
-        litersByPump[pump] = (litersByPump[pump] ?? 0.0) + liters;
-      }
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final pump = (r['pump_no'] as String?) ?? 'Unknown';
+      revenueByPump[pump] = (revenueByPump[pump] ?? 0) + ((r['total_amount'] as num?)?.toDouble() ?? 0);
+      litersByPump[pump] = (litersByPump[pump] ?? 0) + ((r['liters'] as num?)?.toDouble() ?? 0);
     }
 
-    final result = revenueByPump.keys.map((pump) {
-      return PumpPerformance(
-        pumpNo: pump,
-        revenue: revenueByPump[pump] ?? 0.0,
-        liters: litersByPump[pump] ?? 0.0,
-      );
-    }).toList();
+    final result = revenueByPump.keys
+        .map((p) => PumpPerformance(pumpNo: p, revenue: revenueByPump[p]!, liters: litersByPump[p] ?? 0))
+        .toList();
 
-    // Sort by pump number numerically where possible, so "Pump 1, 2, 3..."
-    // doesn't end up as "1, 10, 2, 3..." (string-sort gotcha).
     result.sort((a, b) {
       final aNum = int.tryParse(a.pumpNo);
       final bNum = int.tryParse(b.pumpNo);
@@ -480,101 +465,69 @@ class AnalyticsService {
   }
 
   Future<List<SupplierPerformance>> fetchTopSuppliers({String? fromDate, String? toDate}) async {
-  final records = await outboxRepo.fetchAll();
-  final filtered = records.where((r) {
-    if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-    if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-    return true;
-  }).toList();
+    final rows = await _client.from('deliveries').select('business_date, supplier, total_cost');
 
-  final Map<String, double> valueBySupplier = {};
-  final Map<String, int> countBySupplier = {};
+    final Map<String, double> valueBySupplier = {};
+    final Map<String, int> countBySupplier = {};
 
-  for (final r in filtered) {
-    final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-    final deliveries = (payload['deliveries'] as List? ?? []);
-    for (final d in deliveries) {
-      final supplier = (d['supplier'] as String?) ?? 'Unknown';
-      final cost = (d['totalCost'] as num?)?.toDouble() ?? 0.0;
-      valueBySupplier[supplier] = (valueBySupplier[supplier] ?? 0.0) + cost;
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final supplier = (r['supplier'] as String?) ?? 'Unknown';
+      valueBySupplier[supplier] = (valueBySupplier[supplier] ?? 0) + ((r['total_cost'] as num?)?.toDouble() ?? 0);
       countBySupplier[supplier] = (countBySupplier[supplier] ?? 0) + 1;
     }
+
+    final result = valueBySupplier.keys
+        .map((s) => SupplierPerformance(
+              supplier: s,
+              totalDeliveryValue: valueBySupplier[s]!,
+              deliveryCount: countBySupplier[s] ?? 0,
+            ))
+        .toList();
+
+    result.sort((a, b) => b.totalDeliveryValue.compareTo(a.totalDeliveryValue));
+    return result.take(5).toList();
   }
 
-  final result = valueBySupplier.keys.map((s) => SupplierPerformance(
-    supplier: s,
-    totalDeliveryValue: valueBySupplier[s] ?? 0.0,
-    deliveryCount: countBySupplier[s] ?? 0,
-  )).toList();
+  Future<List<ExpenseCategoryTotal>> fetchExpenseBreakdown({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('expenses').select('business_date, category, amount');
 
-  result.sort((a, b) => b.totalDeliveryValue.compareTo(a.totalDeliveryValue));
-  return result.take(5).toList(); // top 5 only
-}
-
-Future<List<ExpenseCategoryTotal>> fetchExpenseBreakdown({String? fromDate, String? toDate}) async {
-  final records = await outboxRepo.fetchAll();
-  final filtered = records.where((r) {
-    if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-    if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-    return true;
-  }).toList();
-
-  final Map<String, double> amountByCategory = {};
-
-  for (final r in filtered) {
-    final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-    final expenses = (payload['expenses'] as List? ?? []);
-    for (final e in expenses) {
-      final category = (e['category'] as String?) ?? 'Other';
-      final amount = (e['amount'] as num?)?.toDouble() ?? 0.0;
-      amountByCategory[category] = (amountByCategory[category] ?? 0.0) + amount;
+    final Map<String, double> amountByCategory = {};
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final category = (r['category'] as String?) ?? 'Other';
+      amountByCategory[category] = (amountByCategory[category] ?? 0) + ((r['amount'] as num?)?.toDouble() ?? 0);
     }
+
+    final result = amountByCategory.entries.map((e) => ExpenseCategoryTotal(category: e.key, amount: e.value)).toList();
+    result.sort((a, b) => b.amount.compareTo(a.amount));
+    return result;
   }
 
-  final result = amountByCategory.keys.map((c) => ExpenseCategoryTotal(
-    category: c,
-    amount: amountByCategory[c] ?? 0.0,
-  )).toList();
+  Future<List<DebtSummary>> fetchDebtOverview({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('debts').select('business_date, supplier, fuel_type, amount, settled');
 
-  result.sort((a, b) => b.amount.compareTo(a.amount));
-  return result;
-}
+    final Map<String, DebtSummary> debtMap = {};
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final supplier = (r['supplier'] as String?) ?? 'Unknown';
+      final fuelType = FuelMapping.tankKey((r['fuel_type'] as String?) ?? '');
+      final amount = (r['amount'] as num?)?.toDouble() ?? 0.0;
+      final settled = (r['settled'] as bool?) ?? false;
+      final key = '$supplier-$fuelType';
 
-Future<List<DebtSummary>> fetchDebtOverview({String? fromDate, String? toDate}) async {
-  final records = await outboxRepo.fetchAll();
-  final filtered = records.where((r) {
-    if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-    if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-    return true;
-  }).toList();
-
-  final Map<String, DebtSummary> debtMap = {};
-
-    for (final r in filtered) {
-      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-      final debts = (payload['debts'] as List? ?? []);
-      for (final d in debts) {
-        final supplier = (d['supplier'] as String?) ?? 'Unknown';
-        final fuelType = FuelMapping.tankKey((d['fuelType'] as String?) ?? '');
-        final amount = (d['amount'] as num?)?.toDouble() ?? 0.0;
-        final settled = ((d['settled'] as int?) ?? 0) == 1;
-        final key = '$supplier-$fuelType';
-
-        if (debtMap.containsKey(key)) {
-          debtMap[key] = DebtSummary(
-            supplier: supplier,
-            fuelType: fuelType,
-            amount: (debtMap[key]!.amount) + amount,
-            settled: settled,
-          );
-        } else {
-          debtMap[key] = DebtSummary(
-            supplier: supplier,
-            fuelType: fuelType,
-            amount: amount,
-            settled: settled,
-          );
-        }
+      if (debtMap.containsKey(key)) {
+        debtMap[key] = DebtSummary(
+          supplier: supplier,
+          fuelType: fuelType,
+          amount: debtMap[key]!.amount + amount,
+          settled: settled,
+        );
+      } else {
+        debtMap[key] = DebtSummary(supplier: supplier, fuelType: fuelType, amount: amount, settled: settled);
       }
     }
 
@@ -584,26 +537,18 @@ Future<List<DebtSummary>> fetchDebtOverview({String? fromDate, String? toDate}) 
   }
 
   Future<List<ExternalPaymentSummary>> fetchExternalPayments({String? fromDate, String? toDate}) async {
-    final records = await outboxRepo.fetchAll();
-    final filtered = records.where((r) {
-      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-      return true;
-    }).toList();
+    final rows = await _client.from('external_payments').select('business_date, supplier, fuel_type, kind, amount');
 
     final result = <ExternalPaymentSummary>[];
-
-    for (final r in filtered) {
-      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-      final payments = (payload['externalPayments'] as List? ?? []);
-      for (final p in payments) {
-        result.add(ExternalPaymentSummary(
-          supplier: (p['supplier'] as String?) ?? 'Unknown',
-          fuelType: FuelMapping.tankKey((p['fuelType'] as String?) ?? ''),
-          kind: (p['kind'] as String?) ?? '',
-          amount: (p['amount'] as num?)?.toDouble() ?? 0.0,
-        ));
-      }
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      result.add(ExternalPaymentSummary(
+        supplier: (r['supplier'] as String?) ?? 'Unknown',
+        fuelType: FuelMapping.tankKey((r['fuel_type'] as String?) ?? ''),
+        kind: (r['kind'] as String?) ?? '',
+        amount: (r['amount'] as num?)?.toDouble() ?? 0.0,
+      ));
     }
 
     result.sort((a, b) => b.amount.compareTo(a.amount));
@@ -611,49 +556,61 @@ Future<List<DebtSummary>> fetchDebtOverview({String? fromDate, String? toDate}) 
   }
 
   Future<CashFlowSummary> fetchCashFlow({String? fromDate, String? toDate}) async {
-    final records = await outboxRepo.fetchAll();
-    final filtered = records.where((r) {
-      if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-      if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
-      return true;
-    }).toList();
+    final sales = await _client.from('sales').select('business_date, total_amount');
+    final expenses = await _client.from('expenses').select('business_date, amount');
+    final settlements = await _client.from('settlements').select('business_date, paid_amount');
+    final externalPayments = await _client.from('external_payments').select('business_date, amount');
 
-    double salesRevenue = 0;
-    double expenses = 0;
-    double debtSettlements = 0;
-    double externalPayments = 0;
+    double salesRevenue = 0, exp = 0, debtSettlements = 0, extPay = 0;
 
-    for (final r in filtered) {
-      final payload = jsonDecode(r.payloadJson) as Map<String, dynamic>;
-
-      final sales = (payload['sales'] as List? ?? []);
-      for (final s in sales) {
-        salesRevenue += (s['totalAmount'] as num?)?.toDouble() ?? 0.0;
+    for (final s in sales) {
+      if (_inRange(s['business_date'] as String, fromDate, toDate)) {
+        salesRevenue += (s['total_amount'] as num?)?.toDouble() ?? 0;
       }
-
-      final exps = (payload['expenses'] as List? ?? []);
-      for (final e in exps) {
-        expenses += (e['amount'] as num?)?.toDouble() ?? 0.0;
+    }
+    for (final e in expenses) {
+      if (_inRange(e['business_date'] as String, fromDate, toDate)) {
+        exp += (e['amount'] as num?)?.toDouble() ?? 0;
       }
-
-      final settlements = (payload['settlements'] as List? ?? []);
-      for (final s in settlements) {
-        debtSettlements += (s['paidAmount'] as num?)?.toDouble() ?? 0.0;
+    }
+    for (final s in settlements) {
+      if (_inRange(s['business_date'] as String, fromDate, toDate)) {
+        debtSettlements += (s['paid_amount'] as num?)?.toDouble() ?? 0;
       }
-
-      final extPayments = (payload['externalPayments'] as List? ?? []);
-      for (final p in extPayments) {
-        externalPayments += (p['amount'] as num?)?.toDouble() ?? 0.0;
+    }
+    for (final p in externalPayments) {
+      if (_inRange(p['business_date'] as String, fromDate, toDate)) {
+        extPay += (p['amount'] as num?)?.toDouble() ?? 0;
       }
     }
 
     return CashFlowSummary(
       salesRevenue: salesRevenue,
-      expenses: expenses,
+      expenses: exp,
       debtSettlements: debtSettlements,
-      externalPayments: externalPayments,
+      externalPayments: extPay,
     );
   }
 
+  /// Latest known reading per fuel type, for remote tank-level display
+  /// (Insight view's Tank Levels section + AI insights). Replaces the
+  /// dependency on local Services.tank.allTanks for analytics purposes.
+  Future<List<TankLevelSnapshot>> fetchLatestTankLevels() async {
+    final rows = await _client.from('tank_snapshots').select().order('business_date', ascending: false);
 
+    final Map<String, Map<String, dynamic>> latestByFuel = {};
+    for (final r in rows) {
+      final fuel = FuelMapping.tankKey(r['fuel_type'] as String);
+      latestByFuel.putIfAbsent(fuel, () => r);
+    }
+
+    return latestByFuel.values
+        .map((r) => TankLevelSnapshot(
+              fuelType: FuelMapping.tankKey(r['fuel_type'] as String),
+              capacity: (r['capacity'] as num).toDouble(),
+              currentLevel: (r['current_level'] as num).toDouble(),
+              percentage: (r['percentage'] as num).toDouble(),
+            ))
+        .toList();
+  }
 }

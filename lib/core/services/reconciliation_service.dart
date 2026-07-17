@@ -1,30 +1,17 @@
-// lib/core/services/reconciliation_service.dart
-
-import 'dart:convert';
 import 'dart:math';
-import '../../features/fuel/repositories/outbox_repo.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../features/fuel/domain/fuel_mapping.dart';
 
-/// One fuel type's reconciliation result for a single business date.
 class FuelDayReconciliation {
   final String businessDate;
   final String fuelType;
-
-  final double startLevel;     // previous day's actual end level
-  final double delivered;      // liters delivered this day
-  final double sold;           // liters sold this day
-  final double expectedEnd;    // startLevel + delivered - sold
-  final double actualEnd;      // this day's actual tank snapshot level
-  final double gap;            // actualEnd - expectedEnd (negative = missing fuel)
-
-  /// True once enough historical data exists to judge whether this gap
-  /// is statistically unusual for this fuel type (needs a few prior
-  /// days with their own gaps computed first).
+  final double startLevel;
+  final double delivered;
+  final double sold;
+  final double expectedEnd;
+  final double actualEnd;
+  final double gap;
   final bool hasBaseline;
-
-  /// Only meaningful when hasBaseline is true. True if this day's gap
-  /// is unusually large relative to this fuel type's own historical
-  /// gap pattern (i.e. likely a real anomaly, not just normal noise).
   final bool isUnusual;
 
   FuelDayReconciliation({
@@ -41,80 +28,67 @@ class FuelDayReconciliation {
   });
 }
 
+/// Reads live from Supabase instead of the local outbox — same public
+/// API (computeAll with the same params and return type), so
+/// reconciliation_view.dart doesn't need any changes.
 class ReconciliationService {
-  final OutboxRepo outboxRepo;
+  final SupabaseClient _client = Supabase.instance.client;
 
-  ReconciliationService({required this.outboxRepo});
-
-  /// Computes day-over-day reconciliation for every fuel type, across
-  /// all sent business dates, oldest first. The first sent date for
-  /// each fuel type has no prior snapshot to compare against, so it's
-  /// excluded from the results (nothing to reconcile against).
-  Future<List<FuelDayReconciliation>> computeAll({String? fromDate, String? toDate}) async {
-  final allRecords = await outboxRepo.fetchAll();
-  final records = allRecords.where((r) {
-    if (fromDate != null && r.businessDate.compareTo(fromDate) < 0) return false;
-    if (toDate != null && r.businessDate.compareTo(toDate) > 0) return false;
+  bool _inRange(String date, String? from, String? to) {
+    if (from != null && date.compareTo(from) < 0) return false;
+    if (to != null && date.compareTo(to) > 0) return false;
     return true;
-  }).toList();
+  }
 
-    // Sort oldest first by businessDate (not createdAt, since a
-    // corrected/backdated send could have a createdAt out of order
-    // relative to its true business date).
-    final sorted = List.of(records)
-      ..sort((a, b) => a.businessDate.compareTo(b.businessDate));
+  Future<List<FuelDayReconciliation>> computeAll({String? fromDate, String? toDate}) async {
+    final salesRows = await _client.from('sales').select('business_date, fuel_type, liters');
+    final deliveryRows = await _client.from('deliveries').select('business_date, fuel_type, liters');
+    final snapshotRows = await _client.from('tank_snapshots').select('business_date, fuel_type, current_level');
 
-    // Decode once, keep payload alongside each record for easy access.
-    final decoded = sorted.map((r) {
-      return {
-        'businessDate': r.businessDate,
-        'payload': jsonDecode(r.payloadJson) as Map<String, dynamic>,
-      };
-    }).toList();
+    final Map<String, Map<String, double>> deliveredByDateFuel = {};
+    for (final d in deliveryRows) {
+      final date = d['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final fuel = FuelMapping.tankKey(d['fuel_type'] as String);
+      final liters = (d['liters'] as num?)?.toDouble() ?? 0.0;
+      deliveredByDateFuel.putIfAbsent(date, () => {});
+      deliveredByDateFuel[date]![fuel] = (deliveredByDateFuel[date]![fuel] ?? 0) + liters;
+    }
 
-    // Track each fuel type's most recent actual end level, so the
-    // NEXT day's start level is correct.
+    final Map<String, Map<String, double>> soldByDateFuel = {};
+    for (final s in salesRows) {
+      final date = s['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final fuel = FuelMapping.tankKey(s['fuel_type'] as String);
+      final liters = (s['liters'] as num?)?.toDouble() ?? 0.0;
+      soldByDateFuel.putIfAbsent(date, () => {});
+      soldByDateFuel[date]![fuel] = (soldByDateFuel[date]![fuel] ?? 0) + liters;
+    }
+
+    final Map<String, List<Map<String, dynamic>>> snapshotsByDate = {};
+    for (final t in snapshotRows) {
+      final date = t['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      snapshotsByDate.putIfAbsent(date, () => []).add(t);
+    }
+
+    final sortedDates = snapshotsByDate.keys.toList()..sort();
+
     final Map<String, double> lastKnownLevel = {};
-
-    // Track each fuel type's gap history, to build a running baseline
-    // for "is this gap unusual" judgments.
     final Map<String, List<double>> gapHistory = {};
-
     final results = <FuelDayReconciliation>[];
 
-    for (final entry in decoded) {
-      final businessDate = entry['businessDate'] as String;
-      final payload = entry['payload'] as Map<String, dynamic>;
+    for (final date in sortedDates) {
+      final snaps = snapshotsByDate[date]!;
+      final deliveredByFuel = deliveredByDateFuel[date] ?? {};
+      final soldByFuel = soldByDateFuel[date] ?? {};
 
-      final sales = (payload['sales'] as List? ?? []);
-      final deliveries = (payload['deliveries'] as List? ?? []);
-      final tankSnapshot = (payload['tankSnapshot'] as List? ?? []);
-
-      // Sum delivered/sold liters per fuel type for this day.
-      final Map<String, double> deliveredByFuel = {};
-      for (final d in deliveries) {
-        final fuel = FuelMapping.tankKey(d['fuelType'] as String);
-        deliveredByFuel[fuel] =
-            (deliveredByFuel[fuel] ?? 0.0) + ((d['liters'] as num?)?.toDouble() ?? 0.0);
-      }
-
-      final Map<String, double> soldByFuel = {};
-      for (final s in sales) {
-        final fuel = FuelMapping.tankKey(s['fuelType'] as String);
-        soldByFuel[fuel] =
-            (soldByFuel[fuel] ?? 0.0) + ((s['liters'] as num?)?.toDouble() ?? 0.0);
-      }
-
-      // For each fuel type present in this day's tank snapshot:
-      for (final t in tankSnapshot) {
-        final fuel = FuelMapping.tankKey(t['fuelType'] as String);
-        final actualEnd = (t['currentLevel'] as num).toDouble();
+      for (final t in snaps) {
+        final fuel = FuelMapping.tankKey(t['fuel_type'] as String);
+        final actualEnd = (t['current_level'] as num).toDouble();
 
         final startLevel = lastKnownLevel[fuel];
-
         if (startLevel == null) {
-          // First time we've seen this fuel type's snapshot — nothing
-          // to reconcile against yet. Just record the level and move on.
           lastKnownLevel[fuel] = actualEnd;
           continue;
         }
@@ -125,32 +99,21 @@ class ReconciliationService {
         final gap = actualEnd - expectedEnd;
 
         final history = gapHistory.putIfAbsent(fuel, () => []);
-
         bool hasBaseline = history.length >= 3;
         bool isUnusual = false;
 
         if (hasBaseline) {
           final mean = history.reduce((a, b) => a + b) / history.length;
-          final variance = history
-                  .map((g) => (g - mean) * (g - mean))
-                  .reduce((a, b) => a + b) /
-              history.length;
+          final variance = history.map((g) => (g - mean) * (g - mean)).reduce((a, b) => a + b) / history.length;
           final stdDev = variance > 0 ? sqrt(variance) : 0.0;
-
-          // Flag as unusual if this gap is more than 2 standard
-          // deviations from this fuel type's own historical mean gap,
-          // AND the gap itself is non-trivial (avoid flagging tiny
-          // gaps on a fuel type with an extremely tight history).
           final deviation = (gap - mean).abs();
-          isUnusual = stdDev > 0
-              ? (deviation > 2 * stdDev && gap.abs() > 5)
-              : (gap.abs() > 5 && deviation > 5);
+          isUnusual = stdDev > 0 ? (deviation > 2 * stdDev && gap.abs() > 5) : (gap.abs() > 5 && deviation > 5);
         }
 
         history.add(gap);
 
         results.add(FuelDayReconciliation(
-          businessDate: businessDate,
+          businessDate: date,
           fuelType: fuel,
           startLevel: startLevel,
           delivered: delivered,

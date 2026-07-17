@@ -47,6 +47,9 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
   bool _loadingDebtOverview = true;
   List<DebtSummary> _debtOverview = [];
 
+  List<TankLevelSnapshot> _tankLevels = [];
+  bool _loadingTankLevels = true;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +62,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     _loadExternalPayments();
     _loadCashFlow();
     _loadAiInsights();
+    _loadTankLevels();
   }
 
 
@@ -72,6 +76,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     _loadExternalPayments();
     _loadCashFlow();
     _loadAiInsights();
+    _loadTankLevels();
   }
 
   Map<String, String?> _computeInsightDateRange() {
@@ -93,6 +98,16 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       default:
         return {'from': null, 'to': null};
     }
+  }
+
+  Future<void> _loadTankLevels() async {
+  setState(() => _loadingTankLevels = true);
+    final data = await Services.analytics.fetchLatestTankLevels();
+    if (!mounted) return;
+    setState(() {
+      _tankLevels = data;
+      _loadingTankLevels = false;
+    });
   }
 
   Future<void> _loadAiInsights() async {
@@ -140,7 +155,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
     if (!mounted) return;
 
     final insights = AiInsightEngine.generate(
-      tanks: Services.tank.allTanks,
+      tanks: _tankLevels,
       currentPeriod: results[0] as List<DayAnalytics>,
       previousPeriod: results[1] as List<DayAnalytics>,
       expenseBreakdown: results[2] as List<ExpenseCategoryTotal>,
@@ -807,7 +822,7 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
   }
 
   Widget _buildTankLevelsSection() {
-    final tanks = Services.tank.allTanks;
+    final tanks = _tankLevels;
     final fuelColors = {
       'PMS': Colors.green,
       'AGO': Colors.orange,
