@@ -13,7 +13,9 @@ import '../widgets/tank_levels_perfect.dart';
 import '../widgets/weekly_summary_perfect.dart';
 import '../widgets/entry_tabs/tank_dip_tab.dart';
 import '../../../auth/presentation/screens/manage_staff_screen.dart';
-
+import '../../../auth/presentation/widgets/cloud_sign_in_dialog.dart';
+import '../../../auth/presentation/widgets/link_cloud_dialog.dart';
+import '../../../../core/services/sync_service.dart' show CloudSessionRequiredException;
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/day_entry.dart' as de;
 import '../../../../core/services/day_entry_service.dart' show DaySentAlreadyException;
@@ -69,6 +71,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       Services.delivery.addListener(_onDraftsChanged);
       Services.expense.addListener(_onDraftsChanged);
       Services.debt.addListener(_onDraftsChanged);
+      Services.tankDip.addListener(_onDraftsChanged);
     
       _initializeData();
     
@@ -105,6 +108,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       Services.delivery.removeListener(_onDraftsChanged);
       Services.expense.removeListener(_onDraftsChanged);
       Services.debt.removeListener(_onDraftsChanged);
+      Services.tankDip.removeListener(_onDraftsChanged);
     
       tabController.dispose();
       _mainHScroll.dispose();
@@ -167,7 +171,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     todayDeliveryCount = await Services.deliveryRepo.countTodaySubmitted();
     todayExpenseCount = await Services.expenseRepo.countTodaySubmitted();
     final todayAlreadySent = Services.dayEntry.isDayAlreadySent(_businessDateKey(_now));
-    todaySettlementCount = await Services.settlement.todaySubmittedCount(todayAlreadySent);
+    todaySettlementCount = await Services.settlement.todaySubmittedCount(_businessDateKey(_now), todayAlreadySent);
 
     final dipDraftCount = await Services.tankDip
     .countForBusinessDate(_businessDateKey(_now));
@@ -368,6 +372,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     final parts = <String>[];
     if (entry.sale == de.DayEntryStatus.submitted) parts.add('Sale');
     if (entry.delivery == de.DayEntryStatus.submitted) parts.add('Delivery');
+    if (entry.tankDip == de.DayEntryStatus.submitted) parts.add('Tank Dip');
     if (entry.expense == de.DayEntryStatus.submitted) parts.add('Expense');
     if (entry.settlement == de.DayEntryStatus.submitted) parts.add('Settlement');
     return parts.isEmpty ? 'No sections submitted' : parts.join(' • ');
@@ -396,10 +401,11 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               const SizedBox(height: 16),
-              _row('Sales', entry.sale),
-              _row('Delivery', entry.delivery),
-              _row('Expense', entry.expense),
-              _row('Settlement', entry.settlement),
+                _row('Sales', entry.sale),
+                _row('Delivery', entry.delivery),
+                _row('Tank Dip', entry.tankDip),
+                _row('Expense', entry.expense),
+                _row('Settlement', entry.settlement),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -439,9 +445,16 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       // unless there's nothing left to pick (handled by re-fetching fresh).
       final freshUnsent = await Services.dayEntry.fetchUnsentDates();
       if (freshUnsent.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nothing left to send')),
-        );
+        final hasUnsynced = await Services.outboxRepo.hasUnsynced();
+          if (hasUnsynced) {
+            await _pushToCloud();
+            return;
+          }
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nothing to send')),
+          );
         return;
       }
       await _showDatePickerDialog(freshUnsent);
@@ -534,7 +547,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   }
 
   Future<void> _sendData(String businessDate) async {
-  try {
+    try {
       await Services.dayEntry.submitDay(
         businessDate: businessDate,
         submittedAt: DateTime.now(),
@@ -550,21 +563,75 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       return;
     }
 
-    // ✅ NEW: build the outbox payload and archive sale/delivery/expense
-    // for this business date now that the day is officially sent.
     await Services.outbox.buildAndArchive(businessDate);
 
-    await _initializeData();          // refresh top cards
+    // Local submission is complete at this point regardless of what
+    // happens next — the day is archived and safely staged in the
+    // outbox. Cloud push below is best-effort and retryable; a failure
+    // here never reverses or blocks the local send.
+    await _pushToCloud();
+
+    await _initializeData();
     await _loadWeeklyFromDayEntryCache();
 
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Data for $businessDate successfully sent'),
-        backgroundColor: Colors.green,
-      ),
-    );
+  }
+
+  /// Attempts to push any unsynced outbox records to Supabase. Prompts
+  /// for a one-time cloud re-sign-in only if the session is missing —
+  /// never blocks the local send that already completed above.
+  Future<void> _pushToCloud() async {
+    try {
+      final result = await Services.sync.syncAll();
+      if (!mounted) return;
+
+      if (result.hasFailures) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Data saved locally, but ${result.recordsFailed} day(s) '
+              'failed to reach the cloud. Will retry on next Send Data.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Data sent and synced to the cloud'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on CloudSessionRequiredException {
+      if (!mounted) return;
+      final signedIn = await showDialog<bool>(
+        context: context,
+        builder: (_) => const CloudSignInDialog(),
+      );
+
+      if (signedIn == true) {
+        await _pushToCloud(); // retry once now that a session exists
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Data saved locally. Sign in to the cloud next '
+                'time to sync it.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Data saved locally, but cloud sync failed: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
   }
   
 
@@ -620,7 +687,9 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                       );
                     }),
                   const Spacer(),
-                  _sideIcon(Icons.settings),
+                  _sideIcon(Icons.settings, false, () {
+                    showDialog(context: context, builder: (_) => const LinkCloudDialog());
+                  }),
                   _sideIcon(Icons.logout, false, () async {
                     final confirm = await showDialog<bool>(
                       context: context,
@@ -682,13 +751,11 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           style: const TextStyle(color: Colors.white60),
         );
 
-        final sendBtn = Services.auth.isOwner
-          ? const SizedBox.shrink()
-          : ElevatedButton.icon(
-              onPressed: _confirmSendData,
-              icon: const Icon(Icons.send, size: 18),
-              label: const Text('Send Data'),
-            );
+        final sendBtn = ElevatedButton.icon(
+          onPressed: _confirmSendData,
+          icon: const Icon(Icons.send, size: 18),
+          label: const Text('Send Data'),
+        );
 
         if (!isTight) {
           return Container(

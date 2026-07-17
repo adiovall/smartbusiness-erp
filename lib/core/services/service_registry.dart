@@ -14,6 +14,7 @@ import 'reconciliation_service.dart';
 import 'csv_import_service.dart';
 import 'auth_service.dart';
 import 'pump_config_service.dart';
+import 'sync_service.dart';
 
 
 import '../../features/fuel/repositories/delivery_repo.dart';
@@ -55,6 +56,7 @@ class Services {
   // SERVICES
   // =====================
   static final auth = AuthService(repo: userRepo);
+  static final sync = SyncService(outboxRepo: outboxRepo);
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
   
@@ -97,8 +99,8 @@ class Services {
   }
 
   
-  static final analytics = AnalyticsService(outboxRepo: outboxRepo);
-  static final reconciliation = ReconciliationService(outboxRepo: outboxRepo);
+  static final analytics = AnalyticsService();
+  static final reconciliation = ReconciliationService();
   static final csvImport = CsvImportService(outboxRepo: outboxRepo, tankService: tank);
   static final tankDip = TankDipService(repo: TankDipRepo());
   static final outbox = OutboxService(
