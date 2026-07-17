@@ -7,6 +7,7 @@ import 'delivery_service.dart';
 import 'debt_service.dart';
 import 'expense_service.dart';
 import 'settlement_service.dart';
+import 'service_registry.dart';
 
 class DayEntryService {
   final DayEntryRepo repo;
@@ -146,6 +147,7 @@ class DayEntryService {
     newEntry.delivery = _mergeStatus(oldEntry.delivery, newEntry.delivery);
     newEntry.expense = _mergeStatus(oldEntry.expense, newEntry.expense);
     newEntry.settlement = _mergeStatus(oldEntry.settlement, newEntry.settlement);
+    newEntry.tankDip = _mergeStatus(oldEntry.tankDip, newEntry.tankDip);
 
     await repo.upsert(newEntry);
 
@@ -154,11 +156,13 @@ class DayEntryService {
     await debtService.moveBusinessDate(oldDate, newDate);
     await expenseService.moveBusinessDate(oldDate, newDate);
     await settlementService.moveBusinessDate(oldDate, newDate);
+    await Services.tankDip.moveBusinessDate(oldDate, newDate);
 
     oldEntry.sale = DayEntryStatus.none;
     oldEntry.delivery = DayEntryStatus.none;
     oldEntry.expense = DayEntryStatus.none;
     oldEntry.settlement = DayEntryStatus.none;
+    oldEntry.tankDip = DayEntryStatus.none;
     await repo.upsert(oldEntry);
   }
 

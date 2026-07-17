@@ -72,4 +72,15 @@ class SettlementRepo {
     );
     return (result.first['count'] as int?) ?? 0;
   }
+
+  Future<int> countPendingForBusinessDate(String businessDate, bool alreadySent) async {
+    if (alreadySent) return 0;
+
+    final db = await AppDatabase.instance;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM settlements WHERE businessDate = ?',
+      [businessDate],
+    );
+    return (result.first['count'] as int?) ?? 0;
+  }
 }
