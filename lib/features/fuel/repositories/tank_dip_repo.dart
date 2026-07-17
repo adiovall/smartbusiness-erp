@@ -31,7 +31,7 @@ class TankDipRepo {
     final db = await AppDatabase.instance;
     await db.update(
       'tank_dips',
-      {'isArchived': 1, 'isSubmitted': 1},
+      {'isArchived': 1},
       where: 'businessDate = ?',
       whereArgs: [businessDate],
     );
@@ -40,7 +40,7 @@ class TankDipRepo {
   Future<int> countSubmittedForBusinessDate(String businessDate) async {
     final db = await AppDatabase.instance;
     final result = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM tank_dips WHERE businessDate = ? AND isSubmitted = 1',
+      'SELECT COUNT(*) as count FROM tank_dips WHERE businessDate = ? AND isSubmitted = 1 AND isArchived = 0',
       [businessDate],
     );
     return (result.first['count'] as int?) ?? 0;
@@ -70,4 +70,26 @@ class TankDipRepo {
       whereArgs: [businessDate],
     );
   }
+
+  Future<List<TankDipRecord>> fetchAllForBusinessDateAnyArchiveState(String businessDate) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      'tank_dips',
+      where: 'businessDate = ?',
+      whereArgs: [businessDate],
+      orderBy: 'fuelType ASC',
+    );
+    return rows.map(TankDipRecord.fromJson).toList();
+  }
+
+  Future<void> updateBusinessDate(String oldDate, String newDate) async {
+    final db = await AppDatabase.instance;
+    await db.update(
+      'tank_dips',
+      {'businessDate': newDate},
+      where: 'businessDate = ?',
+      whereArgs: [oldDate],
+    );
+  }
+
 }
