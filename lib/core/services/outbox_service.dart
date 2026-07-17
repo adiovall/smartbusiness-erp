@@ -44,7 +44,7 @@ class OutboxService {
     final expenses = await expenseService.allForBusinessDate(businessDate);
     final externalPayments = await externalPaymentRepo.fetchAllForBusinessDate(businessDate); // ← ADD
     final tankSnapshot = tankService.snapshotAll();
-    final tankDips = await tankDipService.allForBusinessDate(businessDate);
+    final tankDips = await tankDipService.allForBusinessDateForOutbox(businessDate);
 
     final payload = {
       'businessDate': businessDate,

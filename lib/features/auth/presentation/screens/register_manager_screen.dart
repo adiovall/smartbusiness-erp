@@ -7,15 +7,17 @@ const _textPrimary = Color(0xFFE5E7EB);
 const _textSecondary = Color(0xFF9CA3AF);
 const _inputBorder = Color(0xFF334155);
 
-class CreateOwnerScreen extends StatefulWidget {
-  final VoidCallback onCreated;
-  const CreateOwnerScreen({super.key, required this.onCreated});
+class RegisterManagerScreen extends StatefulWidget {
+  final VoidCallback onRegistered;
+  final VoidCallback onBack;
+  const RegisterManagerScreen({super.key, required this.onRegistered, required this.onBack});
 
   @override
-  State<CreateOwnerScreen> createState() => _CreateOwnerScreenState();
+  State<RegisterManagerScreen> createState() => _RegisterManagerScreenState();
 }
 
-class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
+class _RegisterManagerScreenState extends State<RegisterManagerScreen> {
+  final tokenCtrl = TextEditingController();
   final nameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
   final passCtrl = TextEditingController();
@@ -27,6 +29,7 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
 
   @override
   void dispose() {
+    tokenCtrl.dispose();
     nameCtrl.dispose();
     emailCtrl.dispose();
     passCtrl.dispose();
@@ -44,12 +47,13 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
 
     setState(() => _loading = true);
     try {
-      await Services.auth.createOwnerAccount(
+      await Services.auth.registerManagerWithToken(
+        token: tokenCtrl.text,
         email: emailCtrl.text,
         password: passCtrl.text,
         name: nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
       );
-      widget.onCreated();
+      widget.onRegistered();
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -67,7 +71,7 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
           borderRadius: BorderRadius.circular(8),
         ),
         focusedBorder: OutlineInputBorder(
-          borderSide: const BorderSide(color: Colors.green),
+          borderSide: const BorderSide(color: Colors.orange),
           borderRadius: BorderRadius.circular(8),
         ),
       );
@@ -90,14 +94,31 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Welcome to FuelFlow ERP',
-                    style: TextStyle(color: _textPrimary, fontSize: 20, fontWeight: FontWeight.bold)),
+                Row(children: [
+                  IconButton(
+                    onPressed: widget.onBack,
+                    icon: const Icon(Icons.arrow_back, color: _textSecondary, size: 20),
+                  ),
+                  const Text('Register as Manager',
+                      style: TextStyle(color: _textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+                ]),
                 const SizedBox(height: 6),
-                const Text(
-                  "Let's set up your Admin account for your fuel station. ",
-                  style: TextStyle(color: _textSecondary, fontSize: 13),
+                const Padding(
+                  padding: EdgeInsets.only(left: 12),
+                  child: Text(
+                    "Ask your Owner for a manager token before continuing. "
+                    "This needs internet the first time only.",
+                    style: TextStyle(color: _textSecondary, fontSize: 12),
+                  ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: tokenCtrl,
+                  textCapitalization: TextCapitalization.characters,
+                  style: const TextStyle(color: _textPrimary),
+                  decoration: _dec('Manager Token (e.g. MGR-XXXXXXXX)'),
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: nameCtrl,
                   style: const TextStyle(color: _textPrimary),
@@ -141,12 +162,11 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
                   height: 48,
                   child: ElevatedButton(
                     onPressed: _loading ? null : _submit,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
                     child: _loading
-                        ? const SizedBox(
-                            width: 20, height: 20,
+                        ? const SizedBox(width: 20, height: 20,
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('Create Admin Account'),
+                        : const Text('Register'),
                   ),
                 ),
               ],

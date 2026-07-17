@@ -29,7 +29,7 @@ class OutboxRepo {
     return OutboxRecord.fromJson(rows.first);
   }
 
-  Future<List<OutboxRecord>> fetchUnsynced() async {
+    Future<List<OutboxRecord>> fetchUnsynced() async {
     final db = await AppDatabase.instance;
     final rows = await db.query(
       'outbox',
@@ -41,6 +41,17 @@ class OutboxRepo {
 
   Future<void> markSynced(String id) async {
     final db = await AppDatabase.instance;
-    await db.update('outbox', {'synced': 1}, where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'outbox',
+      {'synced': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<bool> hasUnsynced() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query('outbox', where: 'synced = 0', limit: 1);
+    return rows.isNotEmpty;
   }
 }

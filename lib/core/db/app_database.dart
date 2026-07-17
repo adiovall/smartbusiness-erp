@@ -125,6 +125,7 @@ class AppDatabase {
         delivery INTEGER NOT NULL DEFAULT 0,
         expense INTEGER NOT NULL DEFAULT 0,
         settlement INTEGER NOT NULL DEFAULT 0,
+        tankDip INTEGER NOT NULL DEFAULT 0,
         submittedAt TEXT
       )
     ''');

@@ -40,6 +40,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus = {};
   final Map<String, bool> daySentStatus = {};
 
+
   int todaySettlementCount = 0;
   int todaySaleCount = 0;
   int todayDeliveryCount = 0;
@@ -739,7 +740,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
         );
 
         final currentUser = Services.auth.currentUser;
-        final roleLabel = currentUser?.isOwner == true ? 'Owner' : 'Manager';
+        final roleLabel = currentUser?.isOwner == true ? 'Admin' : 'Manager';
         final displayName = (currentUser?.name?.isNotEmpty ?? false)
             ? currentUser!.name!
             : (currentUser?.email ?? '');

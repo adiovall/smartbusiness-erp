@@ -37,4 +37,11 @@ class UserRepo {
     final db = await AppDatabase.instance;
     await db.delete('users', where: 'id = ?', whereArgs: [id]);
   }
+
+  Future<bool> hasAnyUser() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query('users', limit: 1);
+    return rows.isNotEmpty;
+  }
+
 }

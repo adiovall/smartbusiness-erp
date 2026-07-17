@@ -204,4 +204,93 @@ class AuthService with ChangeNotifier {
     await repo.delete(id);
     notifyListeners();
   }
+
+  Future<bool> hasAnyLocalUser() => repo.hasAnyUser();
+
+  String _generateToken() {
+    final rand = Random.secure();
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
+    final code = List.generate(8, (_) => chars[rand.nextInt(chars.length)]).join();
+    return 'MGR-$code';
+  }
+
+  /// Owner-only. Requires internet — writes the token to Supabase so a
+  /// Manager on a different device can validate it before she has any
+  /// session of her own.
+  Future<String> generateManagerToken() async {
+    if (!isOwner) throw Exception('Only the Owner can generate manager tokens');
+    final token = _generateToken();
+    try {
+      await _supabase.from('manager_tokens').insert({'token': token, 'status': 'unused'});
+    } catch (e) {
+      throw Exception('Could not generate token. Check your internet connection.');
+    }
+    return token;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchManagerTokens() async {
+    if (!isOwner) throw Exception('Only the Owner can view manager tokens');
+    final rows = await _supabase.from('manager_tokens').select().order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  /// Used on a Manager's OWN separate device, which has no local Owner or
+  /// Manager account yet. Validates the token, registers this Manager's
+  /// own Supabase identity (the one online step), marks the token used,
+  /// then creates her local account for offline login from now on.
+  Future<UserRecord> registerManagerWithToken({
+    required String token,
+    required String email,
+    required String password,
+    String? name,
+  }) async {
+    final cleanToken = token.trim().toUpperCase();
+    final cleanEmail = email.trim().toLowerCase();
+
+    if (cleanToken.isEmpty) throw Exception('Enter the manager token given by your Owner');
+    if (cleanEmail.isEmpty || !cleanEmail.contains('@')) throw Exception('Enter a valid email');
+    if (password.length < 6) throw Exception('Password must be at least 6 characters');
+
+    Map<String, dynamic> tokenRow;
+    try {
+      final rows = await _supabase.from('manager_tokens').select().eq('token', cleanToken).limit(1);
+      if (rows.isEmpty) throw Exception('Invalid token. Check the code and try again.');
+      tokenRow = rows.first as Map<String, dynamic>;
+    } on Exception {
+      rethrow;
+    } catch (e) {
+      throw Exception('Could not reach the cloud to verify this token. Check your internet connection.');
+    }
+
+    if (tokenRow['status'] != 'unused') {
+      throw Exception('This token has already been used. Ask your Owner for a new one.');
+    }
+
+    await _registerWithSupabase(cleanEmail, password);
+
+    await _supabase.from('manager_tokens').update({
+      'status': 'used',
+      'used_at': DateTime.now().toIso8601String(),
+      'used_by_email': cleanEmail,
+    }).eq('token', cleanToken);
+
+    final existing = await repo.fetchByEmail(cleanEmail);
+    if (existing != null) throw Exception('An account with this email already exists on this device');
+
+    final salt = _generateSalt();
+    final user = UserRecord(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      email: cleanEmail,
+      passwordHash: _hash(password, salt),
+      salt: salt,
+      role: 'manager',
+      name: name,
+      createdAt: DateTime.now(),
+    );
+
+    await repo.insert(user);
+    _currentUser = user;
+    notifyListeners();
+    return user;
+  }
 }
