@@ -86,6 +86,42 @@ class AuthService with ChangeNotifier {
     return user;
   }
 
+  static const _webResetUrl = 'https://fuelflow-dashboard-rho.vercel.app/reset-password'; // fill in your real deployed URL
+
+  Future<void> requestAdminPasswordReset(String email) async {
+    try {
+      await _supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), redirectTo: _webResetUrl);
+    } catch (e) {
+      throw Exception('Could not send reset email. Check your internet connection.');
+    }
+  }
+
+  /// After resetting on the web dashboard, verifies the new password
+  /// against Supabase and updates this device's local hash to match.
+  Future<void> syncPasswordAfterCloudReset({required String email, required String newPassword}) async {
+    final cleanEmail = email.trim().toLowerCase();
+    try {
+      await _supabase.auth.signInWithPassword(email: cleanEmail, password: newPassword);
+    } catch (e) {
+      throw Exception('Password not recognized by the cloud yet. Make sure you reset it on the web dashboard first.');
+    }
+
+    final local = await repo.fetchByEmail(cleanEmail);
+    if (local == null) throw Exception('No local account found for this email on this device');
+
+    final salt = _generateSalt();
+    final hash = _hash(newPassword, salt);
+    await repo.updatePassword(local.id, hash, salt);
+  }
+
+  Future<void> resetManagerPassword({required String userId, required String newPassword}) async {
+    if (!isOwner) throw Exception('Only the Admin can reset a Manager password');
+    if (newPassword.length < 6) throw Exception('Password must be at least 6 characters');
+    final salt = _generateSalt();
+    final hash = _hash(newPassword, salt);
+    await repo.updatePassword(userId, hash, salt);
+  }
+
   /// Only callable by a logged-in Owner. UI should only expose this via
   /// an Owner-gated "Manage Staff" screen; re-checked here as a safety net.
   ///

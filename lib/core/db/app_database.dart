@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 16,
+        version: 17,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -171,6 +171,13 @@ class AppDatabase {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -287,6 +294,15 @@ class AppDatabase {
         CREATE TABLE IF NOT EXISTS pump_config (
           pumpNo TEXT PRIMARY KEY,
           fuelType TEXT NOT NULL
+        )
+      ''');
+    }
+
+    if (oldVersion < 17) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
         )
       ''');
     }

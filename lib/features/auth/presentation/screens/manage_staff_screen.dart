@@ -133,6 +133,32 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     }
   }
 
+  Future<void> _resetPassword(UserRecord u) async {
+    final ctrl = TextEditingController();
+    final newPass = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: _cardBg,
+        title: Text('Reset password for ${u.name ?? u.email}', style: const TextStyle(color: _textPrimary, fontSize: 14)),
+        content: TextField(controller: ctrl, obscureText: true, style: const TextStyle(color: _textPrimary),
+            decoration: const InputDecoration(labelText: 'New temporary password')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, ctrl.text), child: const Text('Reset')),
+        ],
+      ),
+    );
+    if (newPass == null || newPass.isEmpty) return;
+    try {
+      await Services.auth.resetManagerPassword(userId: u.id, newPassword: newPass);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset'), backgroundColor: Colors.green));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    }
+  }
+
   Future<void> _deleteStaff(UserRecord u) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -268,12 +294,13 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                                             style: const TextStyle(color: _textPrimary)),
                                         subtitle: Text('${u.email} • ${u.role == 'owner' ? 'Admin' : 'Manager'}',
                                             style: const TextStyle(color: _textSecondary, fontSize: 12)),
-                                        trailing: u.isOwner
-                                            ? const Text('—', style: TextStyle(color: _textSecondary))
-                                            : IconButton(
-                                                icon: const Icon(Icons.delete, color: Colors.redAccent),
-                                                onPressed: isSelf ? null : () => _deleteStaff(u),
-                                              ),
+                                                                                    trailing: u.isOwner
+                                          ? const Text('—', style: TextStyle(color: _textSecondary))
+                                          : Row(mainAxisSize: MainAxisSize.min, children: [
+                                                IconButton(icon: const Icon(Icons.lock_reset, color: Colors.orange, size: 20), onPressed: () => _resetPassword(u)),
+                                                IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: isSelf ? null : () => _deleteStaff(u)),
+                                            ]),
+                                              
                                       );
                                     },
                                   ),

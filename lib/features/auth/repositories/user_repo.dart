@@ -44,4 +44,9 @@ class UserRepo {
     return rows.isNotEmpty;
   }
 
+  Future<void> updatePassword(String id, String passwordHash, String salt) async {
+    final db = await AppDatabase.instance;
+    await db.update('users', {'passwordHash': passwordHash, 'salt': salt}, where: 'id = ?', whereArgs: [id]);
+  }
+
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/services/service_registry.dart';
 import 'create_owner_screen.dart';
 import 'register_manager_screen.dart';
+import '../widgets/admin_forgot_password_dialog.dart';
 
 const _panelBg = Color(0xFF0f172a);
 const _cardBg = Color(0xFF111827);
@@ -9,11 +10,8 @@ const _textPrimary = Color(0xFFE5E7EB);
 const _textSecondary = Color(0xFF9CA3AF);
 const _inputBorder = Color(0xFF334155);
 
-/// Two-door entry point. Manager panel (Login/Register) is the default
-/// on every app load; a top-right toggle swaps to the Admin panel
-/// (Create Admin Account on a brand-new device, or Admin Login if one
-/// already exists locally). Logging out from either role always
-/// returns here, defaulting back to the Manager panel.
+enum _Door { manager, admin }
+
 class EntryScreen extends StatefulWidget {
   const EntryScreen({super.key});
 
@@ -21,11 +19,10 @@ class EntryScreen extends StatefulWidget {
   State<EntryScreen> createState() => _EntryScreenState();
 }
 
-enum _Door { manager, admin }
-
 class _EntryScreenState extends State<EntryScreen> {
   _Door _door = _Door.manager;
   bool _managerRegisterMode = false;
+  bool _adminCreateMode = false;
 
   @override
   Widget build(BuildContext context) {
@@ -37,13 +34,17 @@ class _EntryScreenState extends State<EntryScreen> {
             child: _door == _Door.manager
                 ? (_managerRegisterMode
                     ? RegisterManagerScreen(
-                        onRegistered: () {}, // AuthGate reacts to login automatically
+                        onRegistered: () {},
                         onBack: () => setState(() => _managerRegisterMode = false),
                       )
                     : _ManagerLoginPanel(
                         onSwitchToRegister: () => setState(() => _managerRegisterMode = true),
                       ))
-                : const _AdminPanel(),
+                : (_adminCreateMode
+                    ? CreateOwnerScreen(onCreated: () {})
+                    : _AdminLoginPanel(
+                        onSwitchToCreate: () => setState(() => _adminCreateMode = true),
+                      )),
           ),
           Positioned(
             top: 20,
@@ -52,6 +53,7 @@ class _EntryScreenState extends State<EntryScreen> {
               onPressed: () => setState(() {
                 _door = _door == _Door.manager ? _Door.admin : _Door.manager;
                 _managerRegisterMode = false;
+                _adminCreateMode = false;
               }),
               icon: Icon(
                 _door == _Door.manager ? Icons.admin_panel_settings : Icons.person,
@@ -103,8 +105,7 @@ class _ManagerLoginPanelState extends State<_ManagerLoginPanel> {
         setState(() => _error = 'Incorrect email or password');
         return;
       }
-      if (!user.isOwner) return; // manager login succeeded, AuthGate takes over
-      // Wrong door — this is actually an Admin account.
+      if (!user.isOwner) return;
       Services.auth.logout();
       setState(() => _error = 'This is an Admin account. Use the Admin button (top right) to sign in.');
     } catch (e) {
@@ -143,7 +144,10 @@ class _ManagerLoginPanelState extends State<_ManagerLoginPanel> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('FuelFlow ERP', style: TextStyle(color: _textPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
+          Image.asset('assets/images/fuelflow_logo.png', width: 64, height: 64),
+          const SizedBox(height: 10),
+          const Text('FuelFlow ERP',
+              style: TextStyle(color: _textPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           const Text('Manager Sign In', style: TextStyle(color: _textSecondary, fontSize: 13)),
           const SizedBox(height: 24),
@@ -186,7 +190,7 @@ class _ManagerLoginPanelState extends State<_ManagerLoginPanel> {
           Center(
             child: TextButton(
               onPressed: widget.onSwitchToRegister,
-              child: const Text('Have a token ? Register', style: TextStyle(color: Colors.orange, fontSize: 12)),
+              child: const Text('Have a token? Register', style: TextStyle(color: Colors.orange, fontSize: 12)),
             ),
           ),
         ],
@@ -195,46 +199,9 @@ class _ManagerLoginPanelState extends State<_ManagerLoginPanel> {
   }
 }
 
-class _AdminPanel extends StatefulWidget {
-  const _AdminPanel();
-
-  @override
-  State<_AdminPanel> createState() => _AdminPanelState();
-}
-
-class _AdminPanelState extends State<_AdminPanel> {
-  bool _loading = true;
-  bool _hasOwner = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _check();
-  }
-
-  Future<void> _check() async {
-    final hasOwner = await Services.auth.hasAnyOwner();
-    if (!mounted) return;
-    setState(() {
-      _hasOwner = hasOwner;
-      _loading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const SizedBox(width: 380, height: 200, child: Center(child: CircularProgressIndicator()));
-    }
-    if (!_hasOwner) {
-      return CreateOwnerScreen(onCreated: () {}); // AuthGate reacts automatically
-    }
-    return const _AdminLoginPanel();
-  }
-}
-
 class _AdminLoginPanel extends StatefulWidget {
-  const _AdminLoginPanel();
+  final VoidCallback onSwitchToCreate;
+  const _AdminLoginPanel({required this.onSwitchToCreate});
 
   @override
   State<_AdminLoginPanel> createState() => _AdminLoginPanelState();
@@ -265,7 +232,7 @@ class _AdminLoginPanelState extends State<_AdminLoginPanel> {
         setState(() => _error = 'Incorrect email or password');
         return;
       }
-      if (user.isOwner) return; // AuthGate takes over
+      if (user.isOwner) return;
       Services.auth.logout();
       setState(() => _error = 'This is a Manager account. Use the Manager button (top right) to sign in.');
     } catch (e) {
@@ -304,7 +271,10 @@ class _AdminLoginPanelState extends State<_AdminLoginPanel> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('FuelFlow ERP', style: TextStyle(color: _textPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
+          Image.asset('assets/images/fuelflow_logo.png', width: 64, height: 64),
+          const SizedBox(height: 10),
+          const Text('FuelFlow ERP',
+              style: TextStyle(color: _textPrimary, fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           const Text('Admin Sign In', style: TextStyle(color: _textSecondary, fontSize: 13)),
           const SizedBox(height: 24),
@@ -341,6 +311,20 @@ class _AdminLoginPanelState extends State<_AdminLoginPanel> {
               child: _loading
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Text('Sign In as Admin'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton(
+              onPressed: widget.onSwitchToCreate,
+              child: const Text('First time? Create Admin Account', style: TextStyle(color: Colors.orange, fontSize: 12)),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Center(
+            child: TextButton(
+              onPressed: () => showDialog(context: context, builder: (_) => const AdminForgotPasswordDialog()),
+              child: const Text('Forgot password?', style: TextStyle(color: _textSecondary, fontSize: 12)),
             ),
           ),
         ],
