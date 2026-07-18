@@ -172,6 +172,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
   Future<void> _initializeData() async {
     await Services.init();
+    await Services.configSync.pullAll();
 
     await Services.dayEntry.getOrCreate(_businessDateKey(_now));
 
@@ -594,7 +595,32 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   /// for a one-time cloud re-sign-in only if the session is missing —
   /// never blocks the local send that already completed above.
   Future<void> _pushToCloud() async {
-    try {
+      final sub = await Services.subscription.checkActive();
+      if (sub != null && !sub.isActive) {
+        if (!mounted) return;
+        final shouldContinue = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: const Color(0xFF0f172a),
+            title: const Text('Subscription Expired', style: TextStyle(color: Colors.white)),
+            content: const Text(
+              "This station's Pro plan has expired. Data is saved locally, "
+              "but cloud sync and Analytics won't update until renewed. "
+              "Contact your provider to renew.",
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return; // local send already completed before this was called — untouched
+      }
+
+      try {
       final result = await Services.sync.syncAll();
       if (!mounted) return;
 
@@ -756,7 +782,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           ),
           TextButton(
             onPressed: () => launchUrl(Uri.parse(info.downloadUrl), mode: LaunchMode.externalApplication),
-            child: const Text('Download'),
+            child: const Text('Update'),
           ),
           IconButton(
             icon: const Icon(Icons.close, color: Colors.white54, size: 18),
@@ -814,6 +840,8 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
               children: [
                 title,
                 const SizedBox(width: 20),
+                const SizedBox(width: 12),
+                if (Services.auth.isOwner) _buildProBadge(),
                 welcome,
                 const Spacer(),
                 date,
@@ -849,6 +877,37 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildProBadge() {
+    final sub = Services.subscription.cached;
+    final active = sub?.isActive ?? true; // benefit of the doubt until first check completes
+    return InkWell(
+      onTap: () => showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: const Color(0xFF0f172a),
+          title: Text(active ? 'Pro Plan' : 'Plan Expired', style: const TextStyle(color: Colors.white)),
+          content: Text(
+            sub != null
+                ? '${sub.plan.toUpperCase()} — ${active ? 'active until' : 'expired on'} ${DateFormat('MMM d, yyyy').format(sub.expiresAt)}'
+                : 'Checking...',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: (active ? Colors.amber : Colors.redAccent).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: (active ? Colors.amber : Colors.redAccent).withOpacity(0.4)),
+        ),
+        child: Text(active ? 'PRO' : 'EXPIRED',
+            style: TextStyle(color: active ? Colors.amber : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+      ),
     );
   }
 

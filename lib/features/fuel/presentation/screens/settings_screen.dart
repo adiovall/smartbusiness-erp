@@ -39,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveName() async {
     setState(() => _saving = true);
     await Services.appSettings.setStationName(nameCtrl.text);
+    await Services.configSync.pushStationConfig();
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -64,6 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     await File(result.files.single.path!).copy(dest);
     await Services.appSettings.setLogoPath(dest);
+    await Services.configSync.pushStationConfig();
 
     if (mounted) setState(() {});
   }

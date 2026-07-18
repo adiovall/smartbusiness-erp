@@ -164,6 +164,7 @@ class _TankLevelsPerfectState extends State<TankLevelsPerfect> {
     );
 
     await Services.tank.updateTank(updatedTank);
+    Services.configSync.pushTankConfig();
 
     if (!mounted) return;
     setState(() {

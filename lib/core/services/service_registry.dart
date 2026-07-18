@@ -15,7 +15,10 @@ import 'csv_import_service.dart';
 import 'auth_service.dart';
 import 'pump_config_service.dart';
 import 'sync_service.dart';
-
+import 'app_settings_service.dart';
+import 'update_service.dart';
+import 'config_sync_service.dart';
+import 'subscription_service.dart';
 
 import '../../features/fuel/repositories/delivery_repo.dart';
 import '../../features/fuel/repositories/debt_repo.dart';
@@ -30,6 +33,8 @@ import '../services/external_payment_service.dart';
 import '../../features/fuel/repositories/outbox_repo.dart';
 import '../../features/auth/repositories/user_repo.dart';
 import '../../features/fuel/repositories/pump_config_repo.dart';
+import '../../features/fuel/repositories/app_settings_repo.dart';
+
 
 
 
@@ -39,6 +44,7 @@ class Services {
   // =====================
   // REPOSITORIES
   // =====================
+  static final update = UpdateService();
   static final tankRepo = TankRepo();
   static final debtRepo = DebtRepo();
   static final deliveryRepo = DeliveryRepo();
@@ -49,16 +55,21 @@ class Services {
   static final settlementRepo = SettlementRepo();
   static final outboxRepo = OutboxRepo();
   static final userRepo = UserRepo();
+  static final appSettingsRepo = AppSettingsRepo();
+  static final subscription = SubscriptionService();
+
 
  
 
   // =====================
   // SERVICES
   // =====================
+static final appSettings = AppSettingsService(repo: appSettingsRepo);
   static final auth = AuthService(repo: userRepo);
   static final sync = SyncService(outboxRepo: outboxRepo);
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
+  static final configSync = ConfigSyncService();
   
   static final sale = SaleService(
     tankService: tank,
