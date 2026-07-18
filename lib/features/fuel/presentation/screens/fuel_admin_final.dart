@@ -2,8 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
 
 import 'analytics_screen.dart';
+import 'settings_screen.dart';
 import '../widgets/entry_tabs/sale_tab.dart';
 import '../widgets/entry_tabs/delivery_tab.dart';
 import '../widgets/entry_tabs/expense_tab.dart';
@@ -19,6 +21,10 @@ import '../../../../core/services/sync_service.dart' show CloudSessionRequiredEx
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/day_entry.dart' as de;
 import '../../../../core/services/day_entry_service.dart' show DaySentAlreadyException;
+
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/services/update_service.dart';
+
 
 class FuelAdminFinal extends StatefulWidget {
   const FuelAdminFinal({super.key});
@@ -51,6 +57,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   bool _hasTankDipDrafts = false;
 
   bool _loading = true;
+  UpdateInfo? _updateAvailable;
 
   // ✅ Needed for horizontal scroll when screen is compressed
   final ScrollController _mainHScroll = ScrollController();
@@ -60,12 +67,16 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   final NumberFormat _moneyFmt = NumberFormat.decimalPattern();
 
   String _money(num v) => _moneyFmt.format(v.round());
+  
 
   @override
     void initState() {
       super.initState();
       tabController = TabController(length: 6, vsync: this);
     
+      Services.update.checkForUpdate().then((info) {
+        if (mounted && info != null) setState(() => _updateAvailable = info);
+      });
       // listen to tank updates (for tank widget)
       Services.tank.addListener(_onTankChanged);
       Services.sale.addListener(_onDraftsChanged);
@@ -665,10 +676,10 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
             color: const Color(0xFF020617),
             child: Column(
               children: [
-                const SizedBox(height: 24),
-                  _sideIcon(Icons.local_gas_station, true),
-                  _sideIcon(Icons.store_mall_directory),
-                  _sideIcon(Icons.water_drop),
+                const SizedBox(height: 20),
+                  _sideIcon(Icons.local_gas_station, true, null, 'Fuel'),
+                  _sideIcon(Icons.store_mall_directory, false, null, 'Store'),
+                  _sideIcon(Icons.water_drop, false, null, 'Water'),
                   if (Services.auth.isOwner)
                     _sideIcon(Icons.analytics, false, () {
                       Navigator.push(
@@ -677,7 +688,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                           builder: (_) => AnalyticsScreen(onBack: () => Navigator.pop(context)),
                         ),
                       );
-                    }),
+                    },'Analytics'),
                   if (Services.auth.isOwner)
                     _sideIcon(Icons.badge, false, () {
                       Navigator.push(
@@ -686,11 +697,11 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                           builder: (_) => ManageStaffScreen(onBack: () => Navigator.pop(context)),
                         ),
                       );
-                    }),
+                    }, 'Manage Staff'),
                   const Spacer(),
                   _sideIcon(Icons.settings, false, () {
-                    showDialog(context: context, builder: (_) => const LinkCloudDialog());
-                  }),
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(onBack: () => Navigator.pop(context))));
+                  },'Settings'),
                   _sideIcon(Icons.logout, false, () async {
                     final confirm = await showDialog<bool>(
                       context: context,
@@ -704,7 +715,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
                       ),
                     );
                     if (confirm == true) Services.auth.logout();
-                  }),
+                  }, 'Sign Out'),
                   const SizedBox(height: 24),
               ],
             ),
@@ -714,6 +725,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           Expanded(
             child: Column(
               children: [
+                if (_updateAvailable != null) _buildUpdateBanner(),
                 _buildTopBarResponsive(),
                 _buildSummaryCardsResponsive(),
                 Expanded(child: _buildMainBodyResponsive()),
@@ -729,15 +741,51 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   // TOP BAR (Responsive)
   // =====================
 
+  Widget _buildUpdateBanner() {
+    final info = _updateAvailable!;
+    return Container(
+      color: Colors.green.withOpacity(0.15),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.system_update, color: Colors.greenAccent, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('Update available: v${info.version}',
+                style: const TextStyle(color: Colors.white)),
+          ),
+          TextButton(
+            onPressed: () => launchUrl(Uri.parse(info.downloadUrl), mode: LaunchMode.externalApplication),
+            child: const Text('Download'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+            onPressed: () => setState(() => _updateAvailable = null),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTopBarResponsive() {
     return LayoutBuilder(
       builder: (context, c) {
         final isTight = c.maxWidth < 900;
 
-        final title = const Text(
-          'FuelFlow ERP',
-          style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
-        );
+        final logoPath = Services.appSettings.logoPath;
+          final title = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (logoPath != null) ...[
+                CircleAvatar(radius: 18, backgroundImage: FileImage(File(logoPath))),
+                const SizedBox(width: 10),
+              ],
+              Text(
+                Services.appSettings.stationName,
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ],
+          );
 
         final currentUser = Services.auth.currentUser;
         final roleLabel = currentUser?.isOwner == true ? 'Admin' : 'Manager';
@@ -1030,12 +1078,12 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
-  Widget _sideIcon(IconData icon, [bool active = false, VoidCallback? onTap]) {
+  Widget _sideIcon(IconData icon, [bool active = false, VoidCallback? onTap, String? tooltip]) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
-      child: InkWell(
-        onTap: onTap,
-        child: Icon(icon, size: 28, color: active ? Colors.green : Colors.grey),
+      child: Tooltip(
+        message: tooltip ?? '',
+        child: _HoverIcon(icon: icon, active: active, onTap: onTap),
       ),
     );
   }
@@ -1086,4 +1134,33 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
+}
+
+class _HoverIcon extends StatefulWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onTap;
+  const _HoverIcon({required this.icon, required this.active, this.onTap});
+
+  @override
+  State<_HoverIcon> createState() => _HoverIconState();
+}
+
+class _HoverIconState extends State<_HoverIcon> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.active
+        ? Colors.green
+        : (_hovering ? Colors.green : Colors.grey);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: InkWell(
+        onTap: widget.onTap,
+        child: Icon(widget.icon, size: 28, color: color),
+      ),
+    );
+  }
 }
