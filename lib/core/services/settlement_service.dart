@@ -4,19 +4,23 @@ import '../models/settlement_record.dart';
 import 'debt_service.dart';
 import 'delivery_service.dart';
 import '../../features/fuel/repositories/settlement_repo.dart';
-import 'expense_service.dart'; // ✅ add
+import 'expense_service.dart'; 
+import '../models/debt_payment_record.dart';
+import '../../features/fuel/repositories/debt_payment_repo.dart';// ✅ add
 
 class SettlementService {
   final DebtService debtService;
   final DeliveryService deliveryService;
   final SettlementRepo settlementRepo;
-  final ExpenseService expenseService; // ✅ add
+  final ExpenseService expenseService; 
+  final DebtPaymentRepo debtPaymentRepo;
 
   SettlementService({
     required this.debtService,
     required this.deliveryService,
     required this.settlementRepo,
-    required this.expenseService, // ✅ add
+    required this.expenseService, 
+    required this.debtPaymentRepo,// ✅ add
   });
 
   /// NEW: moves all settlements tagged with oldDate to newDate.
@@ -34,36 +38,37 @@ class SettlementService {
     required double salesPaid,
     required double externalPaid,
     required String source,
+    required String businessDate,
   }) async {
     final total = salesPaid + externalPaid;
     if (total <= 0) throw Exception('Settlement amount must be greater than zero');
 
     final debt = debtService.getDebt(supplier, fuelType);
 
-    // Prevent overpayment — can't settle more than what's owed
     if (debt != null && total > debt.amount) {
       throw Exception(
         'Overpayment blocked: outstanding debt is ₦${debt.amount.toStringAsFixed(0)}, '
-        'but you entered ₦${total.toStringAsFixed(0)}. '
-        'Reduce the settlement amount.'
+        'but you entered ₦${total.toStringAsFixed(0)}. Reduce the settlement amount.'
       );
     }
 
     double remainingDebt = 0;
     double credit = 0;
+    double appliedToDebt = 0;
+    final affectedDebtId = debt?.id;
 
     if (debt != null) {
+      appliedToDebt = total >= debt.amount ? debt.amount : total;
       if (total >= debt.amount) {
-        credit = total - debt.amount; // will be 0 now since total <= debt.amount
+        credit = total - debt.amount;
         await debtService.clearDebt(debt.id);
       } else {
         remainingDebt = debt.amount - total;
         await debtService.updateDebt(debt.id, remainingDebt);
       }
     } else {
-      credit = total; // no debt found — treated as credit
+      credit = total;
     }
-
 
     final record = SettlementRecord(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -76,11 +81,22 @@ class SettlementService {
       credit: credit,
       source: source,
       date: DateTime.now(),
+      businessDate: businessDate,
     );
 
     await settlementRepo.insert(record);
 
-    // ✅ settlement payment from sales becomes expense (locks)
+    if (affectedDebtId != null && appliedToDebt > 0) {
+      await debtPaymentRepo.insert(DebtPaymentRecord(
+        id: '${DateTime.now().millisecondsSinceEpoch}_$affectedDebtId',
+        debtId: affectedDebtId,
+        amount: appliedToDebt,
+        paidByBusinessDate: businessDate,
+        paidByRefId: 'SET:${record.id}',
+        createdAt: DateTime.now(),
+      ));
+    }
+
     if (salesPaid > 0) {
       await expenseService.createLockedExpense(
         amount: salesPaid,
@@ -89,10 +105,22 @@ class SettlementService {
         source: 'Sales',
         refId: 'SET:${record.id}',
         date: record.date,
+        businessDate: businessDate,
       );
     }
 
     return record;
+  }
+
+  Future<void> deleteAllForBusinessDate(String businessDate) async {
+    // Reverse: settlements made ON this day may have paid down debts
+    // that originated on a different day — restore those first.
+    final payments = await debtPaymentRepo.fetchForBusinessDate(businessDate);
+    for (final p in payments) {
+      await debtService.restorePayment(p.debtId, p.amount);
+    }
+    await debtPaymentRepo.deleteForBusinessDate(businessDate);
+    await settlementRepo.deleteForBusinessDate(businessDate);
   }
 
   Future<int> todaySubmittedCount(String businessDate, bool alreadySent) =>

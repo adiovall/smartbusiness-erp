@@ -34,6 +34,8 @@ import '../../features/fuel/repositories/outbox_repo.dart';
 import '../../features/auth/repositories/user_repo.dart';
 import '../../features/fuel/repositories/pump_config_repo.dart';
 import '../../features/fuel/repositories/app_settings_repo.dart';
+import '../../features/fuel/repositories/credit_consumption_repo.dart';
+import '../../features/fuel/repositories/debt_payment_repo.dart';
 
 
 
@@ -57,6 +59,8 @@ class Services {
   static final userRepo = UserRepo();
   static final appSettingsRepo = AppSettingsRepo();
   static final subscription = SubscriptionService();
+  static final creditConsumptionRepo = CreditConsumptionRepo();
+  static final debtPaymentRepo = DebtPaymentRepo();
 
 
  
@@ -79,18 +83,21 @@ static final appSettings = AppSettingsService(repo: appSettingsRepo);
 
   static final expense = ExpenseService(expenseRepo);
 
-  static final delivery = DeliveryService(
-    tankService: tank,
-    debtService: debt,
-    expenseService: expense,
-    deliveryRepo: deliveryRepo,
-  );
 
   static final settlement = SettlementService(
     debtService: debt,
     deliveryService: delivery,
     settlementRepo: settlementRepo,
     expenseService: expense,
+    debtPaymentRepo: debtPaymentRepo,   // NEW
+  );
+
+  static final delivery = DeliveryService(
+    tankService: tank,
+    debtService: debt,
+    expenseService: expense,
+    deliveryRepo: deliveryRepo,
+    creditConsumptionRepo: creditConsumptionRepo,   // NEW
   );
 
   // ✅ dayEntry now needs all 5 services for correctBusinessDate()

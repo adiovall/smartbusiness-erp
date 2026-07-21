@@ -191,4 +191,9 @@ class ExpenseRepo {
     return (result.first['count'] as int?) ?? 0;
   }
 
+  Future<void> deleteForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    await db.delete('expenses', where: 'businessDate = ?', whereArgs: [businessDate]);
+  }
+
 }

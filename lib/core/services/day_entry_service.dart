@@ -121,9 +121,16 @@ class DayEntryService {
       ..expense = _finalize(entry.expense)
       ..settlement = _finalize(entry.settlement)
       ..tankDip = _finalize(entry.tankDip)
-      ..submittedAt = submittedAt;
+      ..submittedAt = submittedAt
+      ..sentByEmail = Services.auth.currentUser?.email
+      ..sentByRole = Services.auth.currentUser?.isOwner == true ? 'owner' : 'manager';
 
     await repo.upsert(entry);
+  }
+
+  Future<void> deleteEntry(String businessDate) async {
+    await repo.deleteByDate(businessDate);
+    _cache.remove(businessDate);
   }
 
   Future<void> correctBusinessDate({

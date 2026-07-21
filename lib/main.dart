@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/config/supabase_config.dart';
+import 'core/services/service_registry.dart';
 import 'features/auth/presentation/screens/auth_gate.dart';
 
 void main() async {
@@ -15,14 +16,11 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // Supabase.initialize sets up its own local session cache internally
-  // (separate from our own local AuthService/SQLite users table). This
-  // call itself doesn't require internet to succeed — it just prepares
-  // the client; actual network calls only happen on signUp/signIn/sync.
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
   );
+  await Services.appSettings.loadFromDb();
 
   runApp(const SmartBusinessApp());
 }

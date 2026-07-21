@@ -11,6 +11,8 @@ class DayEntry {
   DayEntryStatus settlement;
   DayEntryStatus tankDip;
 
+  String? sentByEmail;
+  String? sentByRole; // 'owner' or 'manager'
   DateTime? submittedAt; // 👈 SUBMISSION DATE
 
   DayEntry({
@@ -31,6 +33,8 @@ class DayEntry {
         'settlement': settlement.index,
         'tankDip': tankDip.index,
         'submittedAt': submittedAt?.toIso8601String(),
+        'sentByEmail': sentByEmail,
+        'sentByRole': sentByRole,
       };
 
   factory DayEntry.fromJson(Map<String, dynamic> j) {
@@ -43,6 +47,8 @@ class DayEntry {
       tankDip: DayEntryStatus.values[j['tankDip'] ?? 0],
       submittedAt:
           j['submittedAt'] == null ? null : DateTime.parse(j['submittedAt']),
-    );
+    )
+      ..sentByEmail = j['sentByEmail']
+      ..sentByRole = j['sentByRole'];
   }
 }

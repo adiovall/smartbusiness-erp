@@ -20,6 +20,16 @@ class AuthService with ChangeNotifier {
 
   SupabaseClient get _supabase => Supabase.instance.client;
 
+  /// Best-effort check of whether the CURRENTLY logged-in account's
+  /// Supabase email is confirmed. Never blocks anything — local login
+  /// stays fully independent of this. Returns null if it can't be
+  /// determined (offline, no session, etc.) rather than assuming either way.
+  bool? get isEmailConfirmed {
+    final supaUser = _supabase.auth.currentUser;
+    if (supaUser == null) return null;
+    return supaUser.emailConfirmedAt != null;
+  }
+
   Future<bool> hasAnyOwner() => repo.hasAnyOwner();
 
   String _generateSalt() {

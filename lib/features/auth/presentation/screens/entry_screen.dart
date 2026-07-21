@@ -3,6 +3,7 @@ import '../../../../core/services/service_registry.dart';
 import 'create_owner_screen.dart';
 import 'register_manager_screen.dart';
 import '../widgets/admin_forgot_password_dialog.dart';
+import '../../../../core/utils/friendly_error.dart';
 
 const _panelBg = Color(0xFF0f172a);
 const _cardBg = Color(0xFF111827);
@@ -107,9 +108,9 @@ class _ManagerLoginPanelState extends State<_ManagerLoginPanel> {
       }
       if (!user.isOwner) return;
       Services.auth.logout();
-      setState(() => _error = 'This is an Admin account. Use the Admin button (top right) to sign in.');
+      setState(() => _error = 'This managers account does not exist. Use the Admin button (top right) if you are an Admin.');
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -236,7 +237,7 @@ class _AdminLoginPanelState extends State<_AdminLoginPanel> {
       Services.auth.logout();
       setState(() => _error = 'This is a Manager account. Use the Manager button (top right) to sign in.');
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

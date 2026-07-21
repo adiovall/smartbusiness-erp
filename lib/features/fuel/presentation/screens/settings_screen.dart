@@ -96,6 +96,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+               if (isAdmin) ...[
+                  Builder(builder: (context) {
+                    final confirmed = Services.auth.isEmailConfirmed;
+                    if (confirmed == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Row(
+                        children: [
+                          Icon(
+                            confirmed ? Icons.verified : Icons.warning_amber_rounded,
+                            color: confirmed ? Colors.greenAccent : Colors.orange,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            confirmed ? 'Email verified' : 'Email not verified — check your inbox',
+                            style: TextStyle(color: confirmed ? Colors.greenAccent : Colors.orange, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
                 const Text('Station Branding',
                     style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 16),

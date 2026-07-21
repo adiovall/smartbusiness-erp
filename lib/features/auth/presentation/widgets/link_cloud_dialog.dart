@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/service_registry.dart';
+import '../../../../core/utils/friendly_error.dart';
 
 const _panelBg = Color(0xFF0f172a);
 const _textPrimary = Color(0xFFE5E7EB);
@@ -38,7 +39,7 @@ class _LinkCloudDialogState extends State<LinkCloudDialog> {
       await Services.auth.linkCurrentAccountToCloud(password: passCtrl.text);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/models/day_entry.dart' as de;
 
-/* ===================== COLORS ===================== */
 const panelBg = Color(0xFF0f172a);
 const panelBorder = Color(0xFF1f2937);
 const textPrimary = Color(0xFFE5E7EB);
@@ -12,11 +11,13 @@ const textSecondary = Color(0xFF9CA3AF);
 class WeeklySummaryPerfect extends StatelessWidget {
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus;
   final Map<String, bool> daySentStatus;
+  final Map<String, String?> sentByMap;
 
   const WeeklySummaryPerfect({
     super.key,
     required this.weeklyStatus,
     required this.daySentStatus,
+    required this.sentByMap,
   });
 
   @override
@@ -41,11 +42,7 @@ class WeeklySummaryPerfect extends StatelessWidget {
         children: [
           const Text(
             'Weekly Summary',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: textPrimary,
-            ),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: textPrimary),
           ),
           const SizedBox(height: 8),
           Table(
@@ -54,7 +51,8 @@ class WeeklySummaryPerfect extends StatelessWidget {
               _headerRow(),
               ...sortedKeys.map((key) {
                 final isSent = daySentStatus[key] ?? false;
-                return _dayRow(key, weeklyStatus[key]!, isSent);
+                final sentBy = sentByMap[key];
+                return _dayRow(key, weeklyStatus[key]!, isSent, sentBy);
               }),
             ],
           ),
@@ -66,19 +64,10 @@ class WeeklySummaryPerfect extends StatelessWidget {
   TableRow _headerRow() {
     return TableRow(
       children: ['', 'Sal', 'Deli', 'Dip', 'Exp', 'St']
-          .map(
-            (h) => Padding(
-              padding: const EdgeInsets.all(4),
-              child: Text(
-                h,
-                style: const TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  color: textPrimary,
-                ),
-              ),
-            ),
-          )
+          .map((h) => Padding(
+                padding: const EdgeInsets.all(4),
+                child: Text(h, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: textPrimary)),
+              ))
           .toList(),
     );
   }
@@ -87,14 +76,15 @@ class WeeklySummaryPerfect extends StatelessWidget {
     String dayLabel,
     Map<String, de.DayEntryStatus> statuses,
     bool isSent,
+    String? sentBy,
   ) {
     return TableRow(
       children: [
         Padding(
           padding: const EdgeInsets.all(4),
-          child: Text(
-            dayLabel,
-            style: const TextStyle(fontSize: 9, color: textSecondary),
+          child: Tooltip(
+            message: isSent && sentBy != null ? 'Sent by $sentBy' : '',
+            child: Text(dayLabel, style: const TextStyle(fontSize: 9, color: textSecondary)),
           ),
         ),
         _cell(statuses['Sale'] ?? de.DayEntryStatus.none, isSent),
@@ -102,7 +92,6 @@ class WeeklySummaryPerfect extends StatelessWidget {
         _cell(statuses['Dip'] ?? de.DayEntryStatus.none, isSent),
         _cell(statuses['Exp'] ?? de.DayEntryStatus.none, isSent),
         _cell(statuses['Set'] ?? de.DayEntryStatus.none, isSent),
-        
       ],
     );
   }
@@ -125,8 +114,6 @@ class WeeklySummaryPerfect extends StatelessWidget {
       icon = Icons.circle_outlined;
     }
 
-    return Center(
-      child: Icon(icon, size: 12, color: color),
-    );
+    return Center(child: Icon(icon, size: 12, color: color));
   }
 }

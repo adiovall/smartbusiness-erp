@@ -613,4 +613,47 @@ class AnalyticsService {
             ))
         .toList();
   }
+
+  Future<List<Map<String, dynamic>>> fetchSalesDetail({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('sales').select('business_date, pump_no, fuel_type, liters, unit_price, total_amount');
+    final filtered = rows.where((r) => _inRange(r['business_date'] as String, fromDate, toDate)).toList();
+    filtered.sort((a, b) => (b['business_date'] as String).compareTo(a['business_date'] as String));
+    return filtered;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchTankSnapshotDetail({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('tank_snapshots').select('business_date, fuel_type, current_level, capacity, percentage');
+    final filtered = rows.where((r) => _inRange(r['business_date'] as String, fromDate, toDate)).toList();
+    filtered.sort((a, b) => (b['business_date'] as String).compareTo(a['business_date'] as String));
+    return filtered;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchDeliveryDetail({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('deliveries').select('business_date, supplier, fuel_type, liters, total_cost');
+    final filtered = rows.where((r) => _inRange(r['business_date'] as String, fromDate, toDate)).toList();
+    filtered.sort((a, b) => (b['business_date'] as String).compareTo(a['business_date'] as String));
+    return filtered;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchExpenseDetail({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('expenses').select('business_date, category, amount, comment');
+    final filtered = rows.where((r) => _inRange(r['business_date'] as String, fromDate, toDate)).toList();
+    filtered.sort((a, b) => (b['business_date'] as String).compareTo(a['business_date'] as String));
+    return filtered;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchDebtDetail({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('debts').select('business_date, supplier, fuel_type, amount, settled');
+    final filtered = rows.where((r) => _inRange(r['business_date'] as String, fromDate, toDate)).toList();
+    filtered.sort((a, b) => (b['business_date'] as String).compareTo(a['business_date'] as String));
+    return filtered;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchExternalPaymentDetail({String? fromDate, String? toDate}) async {
+    final rows = await _client.from('external_payments').select('business_date, supplier, fuel_type, kind, amount');
+    final filtered = rows.where((r) => _inRange(r['business_date'] as String, fromDate, toDate)).toList();
+    filtered.sort((a, b) => (b['business_date'] as String).compareTo(a['business_date'] as String));
+    return filtered;
+  }
+
 }

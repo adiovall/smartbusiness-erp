@@ -18,6 +18,8 @@ class DebtRepo {
         'createdAt': d.createdAt.toIso8601String(),
         'businessDate': d.businessDate,
         'settled': d.settled ? 1 : 0,
+        'originalAmount': d.originalAmount,
+        
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -51,6 +53,11 @@ class DebtRepo {
       );
     }
 
+    Future<void> deleteForBusinessDate(String businessDate) async {
+      final db = await AppDatabase.instance;
+      await db.delete('debts', where: 'businessDate = ?', whereArgs: [businessDate]);
+    }
+
   /// ✅ REQUIRED BY DebtService
   Future<List<DebtRecord>> fetchAll() async {
     final db = await AppDatabase.instance;
@@ -65,6 +72,7 @@ class DebtRepo {
         createdAt: DateTime.parse(r['createdAt'] as String),
         businessDate: r['businessDate'] as String?,   // ← ADD THIS
         settled: (r['settled'] as int) == 1,
+        originalAmount: (r['originalAmount'] as num?)?.toDouble() ?? (r['amount'] as num).toDouble(),
       );
     }).toList();
   }

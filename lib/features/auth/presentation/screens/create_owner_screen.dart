@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/service_registry.dart';
+import '../../../../core/utils/friendly_error.dart';
 
 const _panelBg = Color(0xFF0f172a);
 const _cardBg = Color(0xFF111827);
@@ -49,9 +50,27 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
         password: passCtrl.text,
         name: nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
       );
+      if (mounted) {
+        await showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: _cardBg,
+            title: const Text('Check Your Email', style: TextStyle(color: _textPrimary, fontSize: 16)),
+            content: const Text(
+              "We've sent a confirmation link to your email. Verifying it "
+              "isn't required to use the app right now, but it's needed if "
+              "you ever reset your password through email.",
+              style: TextStyle(color: _textSecondary, fontSize: 13),
+            ),
+            actions: [
+              ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Got it')),
+            ],
+          ),
+        );
+      }
       widget.onCreated();
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

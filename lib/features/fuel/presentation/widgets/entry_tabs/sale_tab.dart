@@ -30,6 +30,17 @@ class SaleTab extends StatefulWidget {
   State<SaleTab> createState() => _SaleTabState();
 }
 
+class DecimalInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final text = newValue.text;
+    if (text.isEmpty) return newValue;
+    if (!RegExp(r'^\d*\.?\d{0,3}$').hasMatch(text)) return oldValue;
+    return newValue;
+  }
+}
+
+
 class ThousandsSeparatorInputFormatter extends TextInputFormatter {
   ThousandsSeparatorInputFormatter({String locale = 'en_NG'})
       : _format = NumberFormat.decimalPattern(locale);
@@ -378,22 +389,25 @@ class _SaleTabState extends State<SaleTab> {
   }
 
   Widget _numberField(
-    String label,
-    TextEditingController ctrl, {
-    String? suffix,
-    bool useThousands = false,
-  }) {
-    return TextField(
-      controller: ctrl,
-      keyboardType: TextInputType.number,
-      inputFormatters: useThousands
-          ? [ThousandsSeparatorInputFormatter()]
-          : [FilteringTextInputFormatter.digitsOnly],
-      decoration: _input(label, suffix: suffix),
-      style: const TextStyle(color: textPrimary),
-      onChanged: (_) => setState(() {}),
-    );
-  }
+      String label,
+      TextEditingController ctrl, {
+      String? suffix,
+      bool useThousands = false,
+      bool allowDecimal = false,
+    }) {
+      return TextField(
+        controller: ctrl,
+        keyboardType: TextInputType.numberWithOptions(decimal: allowDecimal),
+        inputFormatters: useThousands
+            ? [ThousandsSeparatorInputFormatter()]
+            : allowDecimal
+                ? [DecimalInputFormatter()]
+                : [FilteringTextInputFormatter.digitsOnly],
+        decoration: _input(label, suffix: suffix),
+        style: const TextStyle(color: textPrimary),
+        onChanged: (_) => setState(() {}),
+      );
+    }
 
   Widget _readonlyField({
     required String label,
@@ -526,9 +540,9 @@ class _SaleTabState extends State<SaleTab> {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Expanded(child: _numberField('Opening', oCtrl)),
+                    Expanded(child: _numberField('Opening', oCtrl, allowDecimal: true)),
                     const SizedBox(width: 10),
-                    Expanded(child: _numberField('Closing', cCtrl)),
+                    Expanded(child: _numberField('Closing', cCtrl, allowDecimal: true)),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -727,7 +741,7 @@ class _SaleTabState extends State<SaleTab> {
             ),
           ),
           Expanded(
-            child: Text(p.liters.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 12)),
+            child: Text(p.liters.toStringAsFixed(3), style: const TextStyle(color: textPrimary, fontSize: 12)),
           ),
           Expanded(
             child: Text(p.unitPrice.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 12)),

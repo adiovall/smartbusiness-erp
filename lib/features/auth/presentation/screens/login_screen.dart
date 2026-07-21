@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/service_registry.dart';
+import '../../../../core/utils/friendly_error.dart';
 
 const _panelBg = Color(0xFF0f172a);
 const _cardBg = Color(0xFF111827);
@@ -44,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _error = 'Incorrect email or password');
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

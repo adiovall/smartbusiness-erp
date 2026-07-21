@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/models/user_record.dart';
 import '../../../../core/services/service_registry.dart';
+import '../../../../core/utils/friendly_error.dart';
 
 const _panelBg = Color(0xFF0b1220);
 const _cardBg = Color(0xFF111827);
@@ -86,7 +87,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       passCtrl.clear();
       await _load();
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _creating = false);
     }
@@ -128,7 +129,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(content: Text(friendlyError(e))),
       );
     }
   }
@@ -155,7 +156,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset'), backgroundColor: Colors.green));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -181,7 +182,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(content: Text(friendlyError(e))),
       );
     }
   }

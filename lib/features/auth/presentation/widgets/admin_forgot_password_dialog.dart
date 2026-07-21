@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/service_registry.dart';
+import '../../../../core/utils/friendly_error.dart';
 
 const _cardBg = Color(0xFF111827);
 const _textPrimary = Color(0xFFE5E7EB);
@@ -26,7 +27,7 @@ class _AdminForgotPasswordDialogState extends State<AdminForgotPasswordDialog> {
       await Services.auth.requestAdminPasswordReset(emailCtrl.text);
       setState(() { _info = 'Reset link sent. Check your email.'; _step2 = true; });
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -38,7 +39,7 @@ class _AdminForgotPasswordDialogState extends State<AdminForgotPasswordDialog> {
       await Services.auth.syncPasswordAfterCloudReset(email: emailCtrl.text, newPassword: newPassCtrl.text);
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

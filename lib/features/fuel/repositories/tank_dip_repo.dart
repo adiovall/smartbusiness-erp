@@ -91,5 +91,10 @@ class TankDipRepo {
       whereArgs: [oldDate],
     );
   }
+  
+  Future<void> deleteForBusinessDate(String businessDate) async {
+    final db = await AppDatabase.instance;
+    await db.delete('tank_dips', where: 'businessDate = ?', whereArgs: [businessDate]);
+  }
 
 }

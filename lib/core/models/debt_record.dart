@@ -11,15 +11,19 @@ class DebtRecord {
 
   bool settled;
 
+  final double originalAmount;
+
   DebtRecord({
     required this.id,
     required this.supplier,
     required this.fuelType,
     required this.amount,
     required this.createdAt,
-    String? businessDate,       // ← NEW
+    double? originalAmount,
+    String? businessDate,
     this.settled = false,
-  }) : businessDate = businessDate ?? _dateKey(createdAt);
+  }) : businessDate = businessDate ?? _dateKey(createdAt),
+      originalAmount = originalAmount ?? amount;
 
   static String _dateKey(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';

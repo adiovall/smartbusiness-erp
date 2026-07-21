@@ -17,7 +17,7 @@ class AppDatabase {
     _db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 17,
+        version: 20,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
@@ -67,14 +67,13 @@ class AppDatabase {
     ''');
 
     await db.execute('''
-      CREATE TABLE debts (
+      CREATE TABLE credit_consumptions (
         id TEXT PRIMARY KEY,
-        supplier TEXT NOT NULL,
-        fuelType TEXT NOT NULL,
+        deliveryId TEXT NOT NULL,
         amount REAL NOT NULL,
-        createdAt TEXT NOT NULL,
-        businessDate TEXT NOT NULL DEFAULT '',
-        settled INTEGER NOT NULL DEFAULT 0
+        consumedByBusinessDate TEXT NOT NULL,
+        consumedByRefId TEXT,
+        createdAt TEXT NOT NULL
       )
     ''');
 
@@ -91,6 +90,17 @@ class AppDatabase {
         source TEXT,
         date TEXT NOT NULL,
         businessDate TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE debt_payments (
+        id TEXT PRIMARY KEY,
+        debtId TEXT NOT NULL,
+        amount REAL NOT NULL,
+        paidByBusinessDate TEXT NOT NULL,
+        paidByRefId TEXT,
+        createdAt TEXT NOT NULL
       )
     ''');
 
@@ -120,14 +130,16 @@ class AppDatabase {
 
     await db.execute('''
       CREATE TABLE day_entries (
-        date TEXT PRIMARY KEY,
-        sale INTEGER NOT NULL DEFAULT 0,
-        delivery INTEGER NOT NULL DEFAULT 0,
-        expense INTEGER NOT NULL DEFAULT 0,
-        settlement INTEGER NOT NULL DEFAULT 0,
-        tankDip INTEGER NOT NULL DEFAULT 0,
-        submittedAt TEXT
-      )
+      date TEXT PRIMARY KEY,
+      sale INTEGER NOT NULL DEFAULT 0,
+      delivery INTEGER NOT NULL DEFAULT 0,
+      expense INTEGER NOT NULL DEFAULT 0,
+      settlement INTEGER NOT NULL DEFAULT 0,
+      tankDip INTEGER NOT NULL DEFAULT 0,
+      submittedAt TEXT,
+      sentByEmail TEXT,
+      sentByRole TEXT
+    )
     ''');
     await db.execute('''
       CREATE TABLE outbox (
@@ -303,6 +315,42 @@ class AppDatabase {
         CREATE TABLE IF NOT EXISTS app_settings (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
+        )
+      ''');
+    }
+
+    if (oldVersion < 18) {
+      await addCol("ALTER TABLE day_entries ADD COLUMN sentByEmail TEXT");
+      await addCol("ALTER TABLE day_entries ADD COLUMN sentByRole TEXT");
+    }
+
+    if (oldVersion < 19) {
+      await addCol("ALTER TABLE debts ADD COLUMN originalAmount REAL");
+      await db.execute(
+        "UPDATE debts SET originalAmount = amount WHERE originalAmount IS NULL"
+      );
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS credit_consumptions (
+          id TEXT PRIMARY KEY,
+          deliveryId TEXT NOT NULL,
+          amount REAL NOT NULL,
+          consumedByBusinessDate TEXT NOT NULL,
+          consumedByRefId TEXT,
+          createdAt TEXT NOT NULL
+        )
+      ''');
+    }
+
+    if (oldVersion < 20) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS debt_payments (
+          id TEXT PRIMARY KEY,
+          debtId TEXT NOT NULL,
+          amount REAL NOT NULL,
+          paidByBusinessDate TEXT NOT NULL,
+          paidByRefId TEXT,
+          createdAt TEXT NOT NULL
         )
       ''');
     }

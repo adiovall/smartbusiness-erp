@@ -237,8 +237,8 @@ class _SettlementTabState extends State<SettlementTab> {
         salesPaid: salesPaid,
         externalPaid: externalPaid,
         source: source,
+        businessDate: _todayKey,   // NEW
       );
-
       widget.onSubmitted();
       _undo();
 

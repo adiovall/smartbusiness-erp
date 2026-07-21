@@ -24,6 +24,8 @@ class AnalyticsInsightView extends StatefulWidget {
 
 class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
   String _insightPeriod = 'Today';
+  DateTime? _customFrom;
+  DateTime? _customTo;
 
   bool _loadingPumpPerformance = true;
   List<PumpPerformance> _pumpPerformance = [];
@@ -95,6 +97,9 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       case 'Year':
         final start = DateTime(now.year, 1, 1);
         return {'from': fmt(start), 'to': fmt(now)};
+      case 'Custom':
+        if (_customFrom == null || _customTo == null) return {'from': null, 'to': null};
+        return {'from': fmt(_customFrom!), 'to': fmt(_customTo!)};
       default:
         return {'from': null, 'to': null};
     }
@@ -455,10 +460,33 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Top Suppliers',
-              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
-          const Text('by delivery value',
-              style: TextStyle(color: textSecondary, fontSize: 11)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Top Suppliers', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+              _viewDetailsButton(() {
+                final range = _computeInsightDateRange();
+                _showDetailDialog(
+                  'All Deliveries',
+                  Services.analytics.fetchDeliveryDetail(fromDate: range['from'], toDate: range['to']),
+                  (row) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      SizedBox(width: 80, child: Text(row['business_date'] as String, style: const TextStyle(color: textSecondary, fontSize: 11))),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(row['supplier'] as String, style: const TextStyle(color: textPrimary, fontSize: 12)),
+                          Text('${row['fuel_type']} • ${(row['liters'] as num).toStringAsFixed(0)}L', style: const TextStyle(color: textSecondary, fontSize: 10)),
+                        ]),
+                      ),
+                      Text(moneyFmt.format((row['total_cost'] as num).toDouble()), style: const TextStyle(color: textPrimary, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ]),
+                  ),
+                );
+              }),
+            ],
+          ),
+          const Text('by delivery value', style: TextStyle(color: textSecondary, fontSize: 11)),
           const SizedBox(height: 12),
           if (_loadingTopSuppliers)
             const Center(child: CircularProgressIndicator())
@@ -517,8 +545,32 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('External Payments',
-              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('External Payments', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+              _viewDetailsButton(() {
+                final range = _computeInsightDateRange();
+                _showDetailDialog(
+                  'All External Payments',
+                  Services.analytics.fetchExternalPaymentDetail(fromDate: range['from'], toDate: range['to']),
+                  (row) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      SizedBox(width: 80, child: Text(row['business_date'] as String, style: const TextStyle(color: textSecondary, fontSize: 11))),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(row['supplier'] as String, style: const TextStyle(color: textPrimary, fontSize: 12)),
+                          Text('${row['fuel_type']} • ${row['kind']}', style: const TextStyle(color: textSecondary, fontSize: 10)),
+                        ]),
+                      ),
+                      Text(moneyFmt.format((row['amount'] as num).toDouble()), style: const TextStyle(color: Colors.cyan, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ]),
+                  ),
+                );
+              }),
+            ],
+          ),
           const SizedBox(height: 12),
           if (_loadingExternalPayments)
             const Center(child: CircularProgressIndicator())
@@ -562,6 +614,76 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _viewDetailsButton(VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('View Details', style: TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.w600)),
+            SizedBox(width: 2),
+            Icon(Icons.chevron_right, color: Colors.orange, size: 14),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDetailDialog(
+    String title,
+    Future<List<Map<String, dynamic>>> future,
+    Widget Function(Map<String, dynamic> row) rowBuilder,
+  ) async {
+    await showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: panelBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: panelBorder)),
+        child: SizedBox(
+          width: 480,
+          height: 520,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text(title, style: const TextStyle(color: textPrimary, fontWeight: FontWeight.bold, fontSize: 16))),
+                    IconButton(icon: const Icon(Icons.close, color: textSecondary), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+                const Divider(color: panelBorder),
+                Expanded(
+                  child: FutureBuilder<List<Map<String, dynamic>>>(
+                    future: future,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final rows = snapshot.data ?? [];
+                      if (rows.isEmpty) {
+                        return const Center(child: Text('No records for this period', style: TextStyle(color: textSecondary)));
+                      }
+                      return ListView.separated(
+                        itemCount: rows.length,
+                        separatorBuilder: (_, __) => const Divider(color: panelBorder, height: 1),
+                        itemBuilder: (_, i) => rowBuilder(rows[i]),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -676,8 +798,33 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Expense Breakdown',
-              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Expense Breakdown', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+              _viewDetailsButton(() {
+                final range = _computeInsightDateRange();
+                _showDetailDialog(
+                  'All Expenses',
+                  Services.analytics.fetchExpenseDetail(fromDate: range['from'], toDate: range['to']),
+                  (row) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      SizedBox(width: 80, child: Text(row['business_date'] as String, style: const TextStyle(color: textSecondary, fontSize: 11))),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(row['category'] as String, style: const TextStyle(color: textPrimary, fontSize: 12)),
+                          if ((row['comment'] as String?)?.isNotEmpty ?? false)
+                            Text(row['comment'] as String, style: const TextStyle(color: textSecondary, fontSize: 10)),
+                        ]),
+                      ),
+                      Text(moneyFmt.format((row['amount'] as num).toDouble()), style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ]),
+                  ),
+                );
+              }),
+            ],
+          ),
           const SizedBox(height: 8),
           Expanded(
             child: Row(
@@ -756,8 +903,37 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Debt Overview',
-              style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Debt Overview', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+              _viewDetailsButton(() {
+                final range = _computeInsightDateRange();
+                _showDetailDialog(
+                  'All Debts',
+                  Services.analytics.fetchDebtDetail(fromDate: range['from'], toDate: range['to']),
+                  (row) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      SizedBox(width: 80, child: Text(row['business_date'] as String, style: const TextStyle(color: textSecondary, fontSize: 11))),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(row['supplier'] as String, style: const TextStyle(color: textPrimary, fontSize: 12)),
+                          Text(row['fuel_type'] as String, style: const TextStyle(color: textSecondary, fontSize: 10)),
+                        ]),
+                      ),
+                      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                        Text(moneyFmt.format((row['amount'] as num).toDouble()),
+                            style: TextStyle(color: (row['settled'] as bool) ? Colors.green : Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text((row['settled'] as bool) ? 'Settled' : 'Unpaid',
+                            style: TextStyle(color: (row['settled'] as bool) ? Colors.green : Colors.redAccent, fontSize: 10)),
+                      ]),
+                    ]),
+                  ),
+                );
+              }),
+            ],
+          ),
           const SizedBox(height: 12),
           if (_loadingDebtOverview)
             const Center(child: CircularProgressIndicator())
@@ -840,9 +1016,29 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Tank Levels',
-            style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Tank Levels', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+              _viewDetailsButton(() {
+                final range = _computeInsightDateRange();
+                _showDetailDialog(
+                  'Tank Level History',
+                  Services.analytics.fetchTankSnapshotDetail(fromDate: range['from'], toDate: range['to']),
+                  (row) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      SizedBox(width: 80, child: Text(row['business_date'] as String, style: const TextStyle(color: textSecondary, fontSize: 11))),
+                      Expanded(child: Text(row['fuel_type'] as String, style: const TextStyle(color: textPrimary, fontSize: 12))),
+                      Text('${(row['current_level'] as num).toStringAsFixed(0)} / ${(row['capacity'] as num).toStringAsFixed(0)} L',
+                          style: const TextStyle(color: textSecondary, fontSize: 11)),
+                      const SizedBox(width: 8),
+                      Text('${(row['percentage'] as num).toStringAsFixed(0)}%', style: const TextStyle(color: Colors.cyan, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ]),
+                  ),
+                );
+              }),
+            ],
           ),
           const SizedBox(height: 12),
           ...tanks.map((t) {
@@ -1009,6 +1205,41 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
           setState(() => _insightPeriod = 'Year');
           _reloadAll();
         }),
+        const SizedBox(width: 8),
+        pillButton('Custom', _insightPeriod == 'Custom', () {
+          setState(() => _insightPeriod = 'Custom');
+          _reloadAll();
+        }),
+        if (_insightPeriod == 'Custom') ...[
+          const SizedBox(width: 16),
+          TextButton(
+            onPressed: () async {
+              final picked = await showThemedDatePicker(context, initial: _customFrom);
+              if (picked != null) {
+                setState(() => _customFrom = picked);
+                if (_customTo != null) _reloadAll();
+              }
+            },
+            child: Text(
+              _customFrom == null ? 'From' : DateFormat('MMM d, yyyy').format(_customFrom!),
+              style: const TextStyle(color: textSecondary),
+            ),
+          ),
+          const Text('→', style: TextStyle(color: textSecondary)),
+          TextButton(
+            onPressed: () async {
+              final picked = await showThemedDatePicker(context, initial: _customTo);
+              if (picked != null) {
+                setState(() => _customTo = picked);
+                if (_customFrom != null) _reloadAll();
+              }
+            },
+            child: Text(
+              _customTo == null ? 'To' : DateFormat('MMM d, yyyy').format(_customTo!),
+              style: const TextStyle(color: textSecondary),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1059,9 +1290,31 @@ class _AnalyticsInsightViewState extends State<AnalyticsInsightView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Sales by Pump',
-            style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Sales by Pump', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+              _viewDetailsButton(() {
+                final range = _computeInsightDateRange();
+                _showDetailDialog(
+                  'All Pump Sales',
+                  Services.analytics.fetchSalesDetail(fromDate: range['from'], toDate: range['to']),
+                  (row) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      SizedBox(width: 80, child: Text(row['business_date'] as String, style: const TextStyle(color: textSecondary, fontSize: 11))),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('Pump ${row['pump_no']} • ${row['fuel_type']}', style: const TextStyle(color: textPrimary, fontSize: 12)),
+                          Text('${(row['liters'] as num).toStringAsFixed(0)}L @ ₦${row['unit_price']}', style: const TextStyle(color: textSecondary, fontSize: 10)),
+                        ]),
+                      ),
+                      Text(moneyFmt.format((row['total_amount'] as num).toDouble()), style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ]),
+                  ),
+                );
+              }),
+            ],
           ),
           const SizedBox(height: 16),
           Expanded(

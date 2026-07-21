@@ -164,4 +164,48 @@ class DebtService with ChangeNotifier {
     await repo.updateBusinessDate(oldBusinessDate, newBusinessDate);
     notifyListeners();
   }
+
+  Future<void> deleteAllForBusinessDate(String businessDate) async {
+    final targets = _debts.where((d) => d.businessDate == businessDate).toList();
+
+    final touched = targets.where((d) => d.amount != d.originalAmount).toList();
+    if (touched.isNotEmpty) {
+      throw Exception(
+        'Cannot delete: ${touched.length} debt(s) from $businessDate have already '
+        'received payment, possibly from a settlement on a different day. '
+        'Resolve manually before deleting.',
+      );
+    }
+
+    await repo.deleteForBusinessDate(businessDate);
+    _debts.removeWhere((d) => d.businessDate == businessDate);
+    notifyListeners();
+  }
+
+  Future<void> restorePayment(String debtId, double amount) async {
+    final idx = _debts.indexWhere((d) => d.id == debtId);
+    DebtRecord debt;
+
+    if (idx != -1) {
+      debt = _debts[idx];
+    } else {
+      final all = await repo.fetchAll();
+      debt = all.firstWhere(
+        (d) => d.id == debtId,
+        orElse: () => throw Exception('Cannot reverse settlement: original debt $debtId no longer exists.'),
+      );
+    }
+
+    debt.amount += amount;
+    debt.settled = false;
+    await repo.update(debt);
+
+    if (idx != -1) {
+      _debts[idx] = debt;
+    } else {
+      _debts.add(debt);
+    }
+    notifyListeners();
+  }
+
 }

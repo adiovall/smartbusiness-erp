@@ -227,4 +227,18 @@ class SaleService with ChangeNotifier {
     if (difference.abs() > 0.01) return SaleMismatch(difference);
     return null;
   }
+
+  Future<void> deleteAllForBusinessDate(String businessDate) async {
+    final records = await saleRepo.fetchAllForBusinessDate(businessDate);
+
+    for (final s in records) {
+      if (s.liters > 0) {
+        await tankService.addFuel(s.fuelType, s.liters);
+      }
+      await saleRepo.delete(s.id);
+    }
+
+    _sales.removeWhere((s) => records.any((r) => r.id == s.id));
+    notifyListeners();
+  }
 }

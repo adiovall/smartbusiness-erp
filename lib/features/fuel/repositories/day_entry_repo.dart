@@ -64,4 +64,9 @@ class DayEntryRepo {
     );
     return rows.map(DayEntry.fromJson).toList();
   }
+
+  Future<void> deleteByDate(String date) async {
+    final db = await AppDatabase.instance;
+    await db.delete('day_entries', where: 'date = ?', whereArgs: [date]);
+  }
 }

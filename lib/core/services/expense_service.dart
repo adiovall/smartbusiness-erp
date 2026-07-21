@@ -106,10 +106,12 @@ class ExpenseService with ChangeNotifier {
     required String source,
     required String refId,
     required DateTime date,
+    String? businessDate,
   }) async {
     final expense = ExpenseRecord(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       date: date,
+      businessDate: businessDate,
       amount: amount,
       category: category,
       comment: comment,
@@ -302,4 +304,11 @@ class ExpenseService with ChangeNotifier {
     await repo.archiveForBusinessDate(businessDate);
     await refreshToday(); // reloads in-memory list, archived rows drop out of allTodayExpenses
   }
+
+  Future<void> deleteAllForBusinessDate(String businessDate) async {
+    await repo.deleteForBusinessDate(businessDate);
+    _expenses.removeWhere((e) => e.businessDate == businessDate);
+    notifyListeners();
+  }
+
 }

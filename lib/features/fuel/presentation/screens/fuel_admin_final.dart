@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
 
 import 'analytics_screen.dart';
 import 'settings_screen.dart';
@@ -26,6 +28,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/services/update_service.dart';
 
 
+
 class FuelAdminFinal extends StatefulWidget {
   const FuelAdminFinal({super.key});
 
@@ -45,6 +48,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
   final Map<String, Map<String, de.DayEntryStatus>> weeklyStatus = {};
   final Map<String, bool> daySentStatus = {};
+  final Map<String, String?> sentByMap = {};
 
 
   int todaySettlementCount = 0;
@@ -143,6 +147,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
   Future<void> _loadWeeklyFromDayEntryCache() async {
     final start = _weekStart(_now);
+    final sentByMap = <String, String?>{};
 
     // Force reload from DB to ensure cache is fresh
     await Services.dayEntry.loadWeek(start);
@@ -166,6 +171,10 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       };
 
       daySentStatus[uiKey] = entry?.submittedAt != null;
+
+      sentByMap[uiKey] = entry?.sentByEmail != null
+          ? '${entry!.sentByEmail} (${entry.sentByRole == 'owner' ? 'Admin' : 'Manager'})'
+          : null;
     }
   }
 
@@ -433,8 +442,13 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
               ),
               const SizedBox(height: 20),
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, 'delete'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                    child: const Text('Delete'),
+                  ),
+                  const Spacer(),
                   TextButton(
                     onPressed: () => Navigator.pop(context, 'cancel'),
                     child: const Text('Cancel'),
@@ -510,6 +524,102 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     if (action == 'send') {
       await _sendData(entry.date);
     }
+
+    if (action == 'delete') {
+      final confirmed = await _confirmDeleteEntry(entry);
+      if (confirmed != true) {
+        // they backed out — return to the same confirm dialog
+        await _showSendConfirmDialog(entry, unsentListForBackNav);
+        return;
+      }
+
+      await _deleteEntryData(entry.date);
+
+      if (!mounted) return;
+      final freshUnsent = await Services.dayEntry.fetchUnsentDates();
+      if (freshUnsent.isNotEmpty) {
+        await _showDatePickerDialog(freshUnsent);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nothing to send')),
+        );
+      }
+      return;
+    }
+  }
+
+  Future<bool?> _confirmDeleteEntry(de.DayEntry entry) {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: const Color(0xFF020617),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Colors.redAccent, width: 1),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Delete This Data?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'This permanently deletes all Sale, Delivery, Tank Dip, Expense, and '
+                'Settlement entries recorded for ${entry.date}. This cannot be undone.',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Delete Permanently'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteEntryData(String businessDate) async {
+    try {
+      await Services.settlement.deleteAllForBusinessDate(businessDate);
+      await Services.debt.deleteAllForBusinessDate(businessDate);
+      await Services.delivery.deleteAllForBusinessDate(businessDate);
+      await Services.sale.deleteAllForBusinessDate(businessDate);
+      await Services.expense.deleteAllForBusinessDate(businessDate);
+      await Services.tankDip.deleteAllForBusinessDate(businessDate);
+      await Services.dayEntry.deleteEntry(businessDate);
+
+      await _initializeData();
+      await _loadWeeklyFromDayEntryCache();
+      if (!mounted) return;
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted all data for $businessDate')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<String?> _showEditDateDialog(String currentDate) async {
@@ -559,6 +669,182 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
+  Future<void> _showDaySummaryDialog() async {
+    final date = _businessDateKey(_now);
+
+
+    final sales = await Services.sale.allForBusinessDate(date);
+    final deliveries = await Services.delivery.allForBusinessDate(date);
+    final tankDips = await Services.tankDip.allForBusinessDateForOutbox(date);
+    final expenses = await Services.expense.allForBusinessDate(date);
+    final settlements = await Services.settlement.allForBusinessDate(date);
+    final debts = Services.debt.allForBusinessDate(date);
+    final tanks = Services.tank.allTanks;
+
+    Widget row(String left, String right, {Color? color}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text(left, style: const TextStyle(color: Colors.white, fontSize: 12))),
+              Text(right, style: TextStyle(color: color ?? Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        );
+
+    Widget section(String title, List<dynamic> items, Widget Function(dynamic) builder) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$title (${items.length})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 6),
+            if (items.isEmpty)
+              const Text('No entries', style: TextStyle(color: Colors.white38, fontSize: 12))
+            else
+              ...items.map(builder),
+          ],
+        ),
+      );
+    }
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: const Color(0xFF0f172a),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Color(0xFF1f2937))),
+        child: SizedBox(
+          width: 480,
+          height: 560,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text('Today — $date', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))),
+                    IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+                const Divider(color: Color(0xFF1f2937)),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        section('Sales', sales, (s) => row(
+                              'Pump ${s.pumpNo} • ${s.fuelType} • ${(s.liters as double).toStringAsFixed(0)}L',
+                              _money(s.totalAmount as double), color: Colors.greenAccent)),
+                        section('Deliveries', deliveries, (d) => row(
+                              '${d.supplier} • ${d.fuelType} • ${(d.liters as double).toStringAsFixed(0)}L',
+                              _money(d.totalCost as double), color: Colors.orange)),
+                        section('Tank Dips', tankDips, (t) => row(
+                              '${t.fuelType} • ${(t.openingLevel as double).toStringAsFixed(0)} → ${(t.closingLevel as double).toStringAsFixed(0)}',
+                              '${(t.variance as double) >= 0 ? '+' : ''}${(t.variance as double).toStringAsFixed(0)} L',
+                              color: (t.variance as double) >= 0 ? Colors.greenAccent : Colors.redAccent)),
+                        section('Expenses', expenses, (e) => row(e.category as String, _money(e.amount as double), color: Colors.redAccent)),
+                        section('Settlements', settlements, (s) => row('${s.supplier} • ${s.fuelType}', _money(s.paidAmount as double), color: Colors.cyan)),
+                        section('Debts', debts, (d) => row('${d.supplier} • ${d.fuelType}', _money(d.amount as double),
+                            color: (d.settled as bool) ? Colors.greenAccent : Colors.redAccent)),
+                        section('Current Tank Levels', tanks, (t) => row(t.fuelType as String,
+                            '${t.currentLevel.toStringAsFixed(0)} / ${t.capacity.toStringAsFixed(0)} L (${t.percentage.toStringAsFixed(0)}%)', color: Colors.cyan)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadDaySummary() async {
+    final date = _businessDateKey(_now);
+
+    final sales = await Services.sale.allForBusinessDate(date);
+    final deliveries = await Services.delivery.allForBusinessDate(date);
+    final tankDips = await Services.tankDip.allForBusinessDateForOutbox(date);
+    final expenses = await Services.expense.allForBusinessDate(date);
+    final settlements = await Services.settlement.allForBusinessDate(date);
+    final debts = Services.debt.allForBusinessDate(date);
+    final tanks = Services.tank.allTanks;
+
+    final rows = <List<dynamic>>[];
+    rows.add(['FuelFlow ERP — Day Summary']);
+    rows.add(['Business Date', date]);
+    rows.add([]);
+
+    rows.add(['SALES']);
+    rows.add(['Pump', 'Fuel', 'Opening', 'Closing', 'Liters', 'Unit Price', 'Amount']);
+    for (final s in sales) {
+      rows.add([s.pumpNo, s.fuelType, s.opening, s.closing, s.liters, s.unitPrice, s.totalAmount]);
+    }
+    rows.add([]);
+
+    rows.add(['DELIVERIES']);
+    rows.add(['Supplier', 'Fuel', 'Liters', 'Total Cost', 'Debt', 'Credit']);
+    for (final d in deliveries) {
+      rows.add([d.supplier, d.fuelType, d.liters, d.totalCost, d.debt, d.credit]);
+    }
+    rows.add([]);
+
+    rows.add(['TANK DIPS']);
+    rows.add(['Fuel', 'Opening', 'Closing', 'Variance', 'Notes']);
+    for (final t in tankDips) {
+      rows.add([t.fuelType, t.openingLevel, t.closingLevel, t.variance, t.notes ?? '']);
+    }
+    rows.add([]);
+
+    rows.add(['EXPENSES']);
+    rows.add(['Category', 'Amount', 'Comment']);
+    for (final e in expenses) {
+      rows.add([e.category, e.amount, e.comment]);
+    }
+    rows.add([]);
+
+    rows.add(['SETTLEMENTS']);
+    rows.add(['Supplier', 'Fuel', 'Paid Amount', 'Remaining Debt', 'Credit']);
+    for (final s in settlements) {
+      rows.add([s.supplier, s.fuelType, s.paidAmount, s.remainingDebt, s.credit]);
+    }
+    rows.add([]);
+
+    rows.add(['DEBTS']);
+    rows.add(['Supplier', 'Fuel', 'Amount', 'Settled']);
+    for (final d in debts) {
+      rows.add([d.supplier, d.fuelType, d.amount, d.settled ? 'Yes' : 'No']);
+    }
+    rows.add([]);
+
+    rows.add(['CURRENT TANK LEVELS']);
+    rows.add(['Fuel', 'Current', 'Capacity', 'Percentage']);
+    for (final t in tanks) {
+      rows.add([t.fuelType, t.currentLevel, t.capacity, '${t.percentage.toStringAsFixed(0)}%']);
+    }
+
+    final csv = const ListToCsvConverter().convert(rows);
+
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Day Summary',
+      fileName: 'day-summary-$date.csv',
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+    if (path == null) return;
+
+    await File(path).writeAsString(csv);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Saved to $path'), backgroundColor: Colors.green),
+    );
+  }
+
   Future<void> _sendData(String businessDate) async {
     try {
       await Services.dayEntry.submitDay(
@@ -598,7 +884,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       final sub = await Services.subscription.checkActive();
       if (sub != null && !sub.isActive) {
         if (!mounted) return;
-        final shouldContinue = await showDialog<bool>(
+        await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
             backgroundColor: const Color(0xFF0f172a),
@@ -617,7 +903,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
             ],
           ),
         );
-        return; // local send already completed before this was called — untouched
+        return;
       }
 
       try {
@@ -1071,13 +1357,46 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
               WeeklySummaryPerfect(
                 weeklyStatus: weeklyStatus,
                 daySentStatus: daySentStatus,
+                sentByMap: sentByMap,
               ),
               const SizedBox(height: 16),
               _buildDailySubmitCard(),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Tooltip(
+                    message: 'View',
+                    child: OutlinedButton(
+                      onPressed: () => _showDaySummaryDialog(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.cyan,
+                        side: const BorderSide(color: Colors.cyan),
+                        padding: const EdgeInsets.all(10),
+                        shape: const CircleBorder(),
+                      ),
+                      child: const Icon(Icons.visibility, size: 18),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Tooltip(
+                    message: 'Download',
+                    child: OutlinedButton(
+                      onPressed: () => _downloadDaySummary(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.green,
+                        side: const BorderSide(color: Colors.green),
+                        padding: const EdgeInsets.all(10),
+                        shape: const CircleBorder(),
+                      ),
+                      child: const Icon(Icons.download, size: 18),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
-
         const SizedBox(width: 16),
 
         // RIGHT: TANK LEVELS
@@ -1168,6 +1487,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
           _submitCountRow('Tank Dip', todayTankDipCount),
           _submitCountRow('Expense', todayExpenseCount),
           _submitCountRow('Settlement', todaySettlementCount),
+          const SizedBox(height: 12),
         ],
       ),
     );

@@ -90,6 +90,12 @@ class TankDipService with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> deleteAllForBusinessDate(String businessDate) async {
+    await repo.deleteForBusinessDate(businessDate);
+    _todayDrafts.removeWhere((d) => d.businessDate == businessDate);
+    notifyListeners();
+  }
+
   Future<void> moveBusinessDate(String oldDate, String newDate) async {
     await repo.updateBusinessDate(oldDate, newDate);
     for (int i = 0; i < _todayDrafts.length; i++) {

@@ -217,5 +217,12 @@ class DeliveryRepo {
       return (result.first['count'] as int?) ?? 0;
   }
 
+  Future<DeliveryRecord?> fetchById(String id) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query('deliveries', where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    return DeliveryRecord.fromJson(rows.first);
+  }
+
   
 }

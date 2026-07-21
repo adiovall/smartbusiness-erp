@@ -1,19 +1,21 @@
 // lib/core/services/delivery_service.dart
 
 import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart'; 
 
 import '../models/delivery_record.dart';
 import 'tank_service.dart';
 import 'debt_service.dart';
 import 'expense_service.dart';
 import '../../features/fuel/repositories/delivery_repo.dart';
+import '../../features/fuel/repositories/credit_consumption_repo.dart';
+import '../models/credit_consumption_record.dart';
 
 class DeliveryService with ChangeNotifier {
   final TankService tankService;
   final DebtService debtService;
   final ExpenseService expenseService;
   final DeliveryRepo deliveryRepo;
+  final CreditConsumptionRepo creditConsumptionRepo;
 
   final List<DeliveryRecord> _deliveries = [];
 
@@ -22,6 +24,7 @@ class DeliveryService with ChangeNotifier {
     required this.debtService,
     required this.expenseService,
     required this.deliveryRepo,
+    required this.creditConsumptionRepo, 
   });
 
   List<DeliveryRecord> get all => List.unmodifiable(_deliveries);
@@ -100,33 +103,41 @@ class DeliveryService with ChangeNotifier {
     // removed: d.isArchived == 0
   }
 
-  Future<void> consumeCredit(String supplier, double amount) async {
+   
+
+  Future<void> consumeCredit(
+    String supplier,
+    double amount, {
+    required String consumedByBusinessDate,
+    String? consumedByRefId,
+  }) async {
     double remaining = amount;
     final s = supplier.trim().toLowerCase();
 
     final credits = _deliveries
-        .where((d) =>
-            d.isSubmitted == 1 &&
-            d.supplier.toLowerCase() == s &&
-            d.credit > 0)
+        .where((d) => d.isSubmitted == 1 && d.supplier.toLowerCase() == s && d.credit > 0)
         .toList()
-      ..sort((a, b) => a.date.compareTo(b.date)); // FIFO
-      
+      ..sort((a, b) => a.date.compareTo(b.date));
 
     for (final d in credits) {
       final used = d.credit >= remaining ? remaining : d.credit;
       d.credit -= used;
       remaining -= used;
-
       await deliveryRepo.update(d);
+
+      await creditConsumptionRepo.insert(CreditConsumptionRecord(
+        id: '${DateTime.now().millisecondsSinceEpoch}_${d.id}',
+        deliveryId: d.id,
+        amount: used,
+        consumedByBusinessDate: consumedByBusinessDate,
+        consumedByRefId: consumedByRefId,
+        createdAt: DateTime.now(),
+      ));
 
       if (remaining <= 0) break;
     }
 
-    if (remaining > 0.01) {
-      throw Exception('Not enough overpaid credit available');
-    }
-
+    if (remaining > 0.01) throw Exception('Not enough overpaid credit available');
     notifyListeners();
   }
 
@@ -353,7 +364,38 @@ class DeliveryService with ChangeNotifier {
     notifyListeners();
   }
 
-  
+  Future<void> deleteAllForBusinessDate(String businessDate) async {
+    final records = await deliveryRepo.fetchAllForBusinessDate(businessDate);
+    final ids = records.map((r) => r.id).toSet();
+
+    // Block: this day's own delivery credit was already spent by a different day
+    final consumedFromThisDay = await creditConsumptionRepo.fetchForDeliveryIds(ids);
+    final spentElsewhere = consumedFromThisDay.where((c) => c.consumedByBusinessDate != businessDate);
+    if (spentElsewhere.isNotEmpty) {
+      throw Exception(
+        'Cannot delete: credit from a delivery on $businessDate has already been '
+        'used to settle a different day. Resolve manually before deleting.',
+      );
+    }
+
+    // Reverse: this day's own submission consumed credit from earlier deliveries
+    final consumedByThisDay = await creditConsumptionRepo.fetchForBusinessDate(businessDate);
+    for (final c in consumedByThisDay) {
+      final source = await deliveryRepo.fetchById(c.deliveryId);
+      if (source != null) {
+        final restored = source.copyWith(credit: source.credit + c.amount);
+        await deliveryRepo.update(restored);
+      }
+    }
+    await creditConsumptionRepo.deleteForBusinessDate(businessDate);
+
+    for (final d in records) {
+      if (d.liters > 0) tankService.removeFuel(d.fuelType, d.liters);
+      await deliveryRepo.deleteById(d.id);
+    }
+    _deliveries.removeWhere((d) => ids.contains(d.id));
+    notifyListeners();
+  }
 
   /// FINALIZE: submit drafts
   /// - mark submitted in DB
@@ -367,7 +409,12 @@ class DeliveryService with ChangeNotifier {
 
     for (final d in drafts) {
       if (d.creditUsed > 0) {
-        await consumeCredit(d.supplier, d.creditUsed);
+        await consumeCredit(
+          d.supplier,
+          d.creditUsed,
+          consumedByBusinessDate: d.businessDate,
+          consumedByRefId: 'DEL:${d.id}',
+        );
       }
 
       if (d.salesPaid > 0) {
@@ -378,6 +425,7 @@ class DeliveryService with ChangeNotifier {
           source: 'Sales',
           refId: 'DEL:${d.id}',
           date: DateTime.now(),
+          businessDate: d.businessDate,
         );
       }
 
@@ -386,6 +434,7 @@ class DeliveryService with ChangeNotifier {
           supplier: d.supplier,
           fuelType: d.fuelType,
           amount: d.debt,
+          businessDate: d.businessDate,
         );
       }
 
