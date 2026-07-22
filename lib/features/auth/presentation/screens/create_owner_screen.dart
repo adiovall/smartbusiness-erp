@@ -53,7 +53,7 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
       if (mounted) {
         await showDialog(
           context: context,
-          builder: (_) => AlertDialog(
+          builder: (dialogContext) => AlertDialog(
             backgroundColor: _cardBg,
             title: const Text('Check Your Email', style: TextStyle(color: _textPrimary, fontSize: 16)),
             content: const Text(
@@ -63,7 +63,7 @@ class _CreateOwnerScreenState extends State<CreateOwnerScreen> {
               style: TextStyle(color: _textSecondary, fontSize: 13),
             ),
             actions: [
-              ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Got it')),
+              ElevatedButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Got it')),
             ],
           ),
         );

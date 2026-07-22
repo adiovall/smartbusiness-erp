@@ -1,11 +1,11 @@
 [Setup]
 AppName=FuelFlow ERP
-AppVersion=1.1.0
+AppVersion=1.2.0
 AppPublisher=FuelFlow ERP
 DefaultDirName={autopf}\FuelFlow ERP
 DefaultGroupName=FuelFlow ERP
 OutputDir=installer_output
-OutputBaseFilename=FuelFlowERP-Setup-v1.1.0
+OutputBaseFilename=FuelFlowERP-Setup-v1.2.0
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

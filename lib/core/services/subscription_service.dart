@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'auth_service.dart';
 
 class SubscriptionStatus {
   final String plan;
@@ -9,16 +10,24 @@ class SubscriptionStatus {
 
 class SubscriptionService {
   final SupabaseClient _client = Supabase.instance.client;
+  final AuthService authService;
+
+  SubscriptionService({required this.authService});
+
   SubscriptionStatus? _cached;
   SubscriptionStatus? get cached => _cached;
 
   /// Real check, called right before Send Data pushes to the cloud —
   /// this is already the one moment the app requires internet, so it's
   /// the natural place to enforce this without adding a new online
-  /// dependency anywhere else.
+  /// dependency anywhere else. Scoped by station so each station's
+  /// subscription is independent.
   Future<SubscriptionStatus?> checkActive() async {
     try {
-      final rows = await _client.from('subscription').select().eq('id', 'main').limit(1);
+      final stationId = await authService.resolveStationId();
+      if (stationId == null) return _cached;
+
+      final rows = await _client.from('subscription').select().eq('station_id', stationId).limit(1);
       if (rows.isEmpty) return null;
       final row = rows.first;
       final status = SubscriptionStatus(
@@ -28,8 +37,6 @@ class SubscriptionService {
       _cached = status;
       return status;
     } catch (_) {
-      // Can't reach Supabase to verify — fall back to last known good
-      // status rather than blocking Send Data on a network hiccup.
       return _cached;
     }
   }

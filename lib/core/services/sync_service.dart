@@ -3,10 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../features/fuel/repositories/outbox_repo.dart';
+import 'auth_service.dart';
 
-/// Thrown when Send Data can't find an active Supabase session. Caught
-/// specifically by the UI to show a one-time cloud sign-in dialog,
-/// rather than treated as a generic sync failure.
 class CloudSessionRequiredException implements Exception {
   final String message;
   CloudSessionRequiredException([this.message = 'Sign in to the cloud to send data.']);
@@ -24,30 +22,28 @@ class SyncResult {
   bool get hasFailures => recordsFailed > 0;
 }
 
-/// Pushes staged outbox payloads to Supabase. Each outbox row represents
-/// one business date's finalized data (already archived locally via
-/// OutboxService.buildAndArchive). This service is purely additive on
-/// the Supabase side — it never reads back from Supabase, and never
-/// touches local SQLite data beyond flipping `synced` once a push
-/// succeeds.
 class SyncService with ChangeNotifier {
   final OutboxRepo outboxRepo;
+  final AuthService authService;
   final SupabaseClient _client = Supabase.instance.client;
 
-  SyncService({required this.outboxRepo});
+  SyncService({required this.outboxRepo, required this.authService});
 
   bool _syncing = false;
   bool get isSyncing => _syncing;
 
   bool get hasSupabaseSession => _client.auth.currentSession != null;
 
-  /// Pushes every unsynced outbox record, oldest business date first.
-  /// Best-effort: a failure on one record doesn't block the rest, so a
-  /// bad/edge-case payload from one day doesn't hold every other
-  /// unsynced day hostage. Failures stay unsynced for the next attempt.
   Future<SyncResult> syncAll() async {
     if (!hasSupabaseSession) {
       throw CloudSessionRequiredException();
+    }
+
+    final stationId = await authService.resolveStationId();
+    if (stationId == null) {
+      throw CloudSessionRequiredException(
+        'Could not determine this account\'s station. Try signing in to the cloud again.',
+      );
     }
 
     _syncing = true;
@@ -60,7 +56,7 @@ class SyncService with ChangeNotifier {
 
     for (final record in unsynced) {
       try {
-        await _pushRecord(record);
+        await _pushRecord(record, stationId);
         await outboxRepo.markSynced(record.id);
         succeeded++;
       } catch (e) {
@@ -75,7 +71,7 @@ class SyncService with ChangeNotifier {
     return SyncResult(recordsSynced: succeeded, recordsFailed: failed, lastError: lastError);
   }
 
-  Future<void> _pushRecord(dynamic record) async {
+  Future<void> _pushRecord(dynamic record, String stationId) async {
     final payload = jsonDecode(record.payloadJson) as Map<String, dynamic>;
     final businessDate = payload['businessDate'] as String;
 
@@ -83,6 +79,7 @@ class SyncService with ChangeNotifier {
     if (sales.isNotEmpty) {
       await _client.from('sales').upsert(sales.map((s) => {
             'id': s['id'],
+            'station_id': stationId,
             'business_date': businessDate,
             'pump_no': s['pumpNo'],
             'fuel_type': s['fuelType'],
@@ -98,6 +95,7 @@ class SyncService with ChangeNotifier {
     if (deliveries.isNotEmpty) {
       await _client.from('deliveries').upsert(deliveries.map((d) => {
             'id': d['id'],
+            'station_id': stationId,
             'business_date': businessDate,
             'supplier': d['supplier'],
             'fuel_type': d['fuelType'],
@@ -117,6 +115,7 @@ class SyncService with ChangeNotifier {
     if (tankDips.isNotEmpty) {
       await _client.from('tank_dips').upsert(tankDips.map((t) => {
             'id': t['id'],
+            'station_id': stationId,
             'business_date': businessDate,
             'fuel_type': t['fuelType'],
             'opening_level': t['openingLevel'],
@@ -129,6 +128,7 @@ class SyncService with ChangeNotifier {
     if (expenses.isNotEmpty) {
       await _client.from('expenses').upsert(expenses.map((e) => {
             'id': e['id'],
+            'station_id': stationId,
             'business_date': businessDate,
             'amount': e['amount'],
             'category': e['category'],
@@ -142,6 +142,7 @@ class SyncService with ChangeNotifier {
     if (settlements.isNotEmpty) {
       await _client.from('settlements').upsert(settlements.map((s) => {
             'id': s['id'],
+            'station_id': stationId,
             'business_date': businessDate,
             'supplier': s['supplier'],
             'fuel_type': s['fuelType'],
@@ -158,6 +159,7 @@ class SyncService with ChangeNotifier {
     if (debts.isNotEmpty) {
       await _client.from('debts').upsert(debts.map((d) => {
             'id': d['id'],
+            'station_id': stationId,
             'business_date': businessDate,
             'supplier': d['supplier'],
             'fuel_type': d['fuelType'],
@@ -170,6 +172,7 @@ class SyncService with ChangeNotifier {
     if (externalPayments.isNotEmpty) {
       await _client.from('external_payments').upsert(externalPayments.map((e) => {
             'id': e['id'],
+            'station_id': stationId,
             'business_date': businessDate,
             'supplier': e['supplier'],
             'fuel_type': e['fuelType'],
@@ -182,6 +185,7 @@ class SyncService with ChangeNotifier {
     if (tankSnapshot.isNotEmpty) {
       await _client.from('tank_snapshots').upsert(tankSnapshot.map((t) => {
             'id': '${businessDate}_${t['fuelType']}',
+            'station_id': stationId,
             'business_date': businessDate,
             'fuel_type': t['fuelType'],
             'capacity': t['capacity'],

@@ -153,6 +153,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               side: const BorderSide(color: Colors.orange),
             ),
           ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: _exportCsv,
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text('Download CSV'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.cyan,
+              side: const BorderSide(color: Colors.cyan),
+            ),
+          ),
         ],
       ),
     );
@@ -192,6 +202,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _exportCsv() async {
+    final csv = await Services.csvExport.exportAllAsCsv();
+
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Historical Data',
+      fileName: 'fuelflow-historical-${DateTime.now().toIso8601String().split("T").first}.csv',
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+    if (path == null) return;
+
+    await File(path).writeAsString(csv);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Historical data exported'), backgroundColor: Colors.green),
     );
   }
 }

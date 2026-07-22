@@ -1,30 +1,58 @@
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'dart:io';
 
 class AppDatabase {
   static Database? _db;
+  static Future<Database>? _initFuture;
+  static const int _schemaVersion = 20;
 
   static Future<Database> get instance async {
     if (_db != null) return _db!;
+    _initFuture ??= _open();
+    _db = await _initFuture!;
+    return _db!;
+  }
 
+  static Future<Database> _open() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
 
     final directory = await getApplicationDocumentsDirectory();
     final dbPath = join(directory.path, 'smartbusiness.db');
 
-    _db = await databaseFactory.openDatabase(
+    final file = File(dbPath);
+    if (await file.exists()) {
+      try {
+        final probe = await databaseFactory.openDatabase(
+          dbPath,
+          options: OpenDatabaseOptions(readOnly: true),
+        );
+        final version = await probe.getVersion();
+        await probe.close();
+
+        // Anyone not already fully caught up gets a clean rebuild —
+        // no partial migration is ever attempted on a real device.
+        // Only a DB already at _schemaVersion is left untouched.
+        if (version < _schemaVersion) {
+          await file.delete();
+        }
+      } catch (_) {
+        try { await file.delete(); } catch (_) {}
+      }
+    }
+
+    return databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 20,
+        version: _schemaVersion,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       ),
     );
-
-    return _db!;
   }
+
 
   static Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
@@ -125,6 +153,19 @@ class AppDatabase {
         isArchived INTEGER NOT NULL DEFAULT 0,
         date TEXT NOT NULL,
         businessDate TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE debts (
+        id TEXT PRIMARY KEY,
+        supplier TEXT NOT NULL,
+        fuelType TEXT NOT NULL,
+        amount REAL NOT NULL,
+        createdAt TEXT NOT NULL,
+        businessDate TEXT NOT NULL DEFAULT '',
+        originalAmount REAL NOT NULL DEFAULT 0,
+        settled INTEGER NOT NULL DEFAULT 0
       )
     ''');
 

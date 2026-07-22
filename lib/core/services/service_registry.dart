@@ -19,6 +19,7 @@ import 'app_settings_service.dart';
 import 'update_service.dart';
 import 'config_sync_service.dart';
 import 'subscription_service.dart';
+import 'csv_export_service.dart';
 
 import '../../features/fuel/repositories/delivery_repo.dart';
 import '../../features/fuel/repositories/debt_repo.dart';
@@ -58,7 +59,7 @@ class Services {
   static final outboxRepo = OutboxRepo();
   static final userRepo = UserRepo();
   static final appSettingsRepo = AppSettingsRepo();
-  static final subscription = SubscriptionService();
+  static final subscription = SubscriptionService(authService: auth);
   static final creditConsumptionRepo = CreditConsumptionRepo();
   static final debtPaymentRepo = DebtPaymentRepo();
 
@@ -70,10 +71,10 @@ class Services {
   // =====================
 static final appSettings = AppSettingsService(repo: appSettingsRepo);
   static final auth = AuthService(repo: userRepo);
-  static final sync = SyncService(outboxRepo: outboxRepo);
+  static final sync = SyncService(outboxRepo: outboxRepo, authService: auth);
   static final tank = TankService(tankRepo);
   static final debt = DebtService(debtRepo);
-  static final configSync = ConfigSyncService();
+  static final configSync = ConfigSyncService(authService: auth);
   
   static final sale = SaleService(
     tankService: tank,
@@ -98,6 +99,13 @@ static final appSettings = AppSettingsService(repo: appSettingsRepo);
     expenseService: expense,
     deliveryRepo: deliveryRepo,
     creditConsumptionRepo: creditConsumptionRepo,   // NEW
+  );
+
+  static final csvExport = CsvExportService(
+    saleRepo: saleRepo,
+    deliveryRepo: deliveryRepo,
+    expenseRepo: expenseRepo,
+    tankDipRepo: TankDipRepo(),   // matches how tankDip service is built inline
   );
 
   // ✅ dayEntry now needs all 5 services for correctBusinessDate()

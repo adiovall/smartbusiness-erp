@@ -18,7 +18,6 @@ import '../widgets/weekly_summary_perfect.dart';
 import '../widgets/entry_tabs/tank_dip_tab.dart';
 import '../../../auth/presentation/screens/manage_staff_screen.dart';
 import '../../../auth/presentation/widgets/cloud_sign_in_dialog.dart';
-import '../../../auth/presentation/widgets/link_cloud_dialog.dart';
 import '../../../../core/services/sync_service.dart' show CloudSessionRequiredException;
 import '../../../../core/services/service_registry.dart';
 import '../../../../core/models/day_entry.dart' as de;
@@ -26,6 +25,7 @@ import '../../../../core/services/day_entry_service.dart' show DaySentAlreadyExc
 
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/services/update_service.dart';
+import '../../../../core/services/subscription_service.dart';
 
 
 
@@ -74,38 +74,22 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   
 
   @override
-    void initState() {
-      super.initState();
-      tabController = TabController(length: 6, vsync: this);
-    
-      Services.update.checkForUpdate().then((info) {
-        if (mounted && info != null) setState(() => _updateAvailable = info);
-      });
-      // listen to tank updates (for tank widget)
-      Services.tank.addListener(_onTankChanged);
-      Services.sale.addListener(_onDraftsChanged);
-      Services.delivery.addListener(_onDraftsChanged);
-      Services.expense.addListener(_onDraftsChanged);
-      Services.debt.addListener(_onDraftsChanged);
-      Services.tankDip.addListener(_onDraftsChanged);
-    
-      _initializeData();
-    
-      Future.microtask(() async {
-        // Load today's totals
-        final salesTotal = await Services.saleRepo.getTodayTotalAmount();
-        final expenseTotal = Services.expense.todayExpenseTotal;
-    
-        await _loadWeeklyFromDayEntryCache();
-    
-        if (!mounted) return;
-        setState(() {
-          todaysSales = salesTotal;
-          todaysExpense = expenseTotal;
-          _loading = false;
-        });
-      });
-    }
+  void initState() {
+    super.initState();
+    tabController = TabController(length: 6, vsync: this);
+
+    Services.update.checkForUpdate().then((info) {
+      if (mounted && info != null) setState(() => _updateAvailable = info);
+    });
+    Services.tank.addListener(_onTankChanged);
+    Services.sale.addListener(_onDraftsChanged);
+    Services.delivery.addListener(_onDraftsChanged);
+    Services.expense.addListener(_onDraftsChanged);
+    Services.debt.addListener(_onDraftsChanged);
+    Services.tankDip.addListener(_onDraftsChanged);
+
+    _initializeData();
+  }
     
     void _onTankChanged() {
       if (mounted) setState(() {});
@@ -180,35 +164,41 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
 
 
   Future<void> _initializeData() async {
-    await Services.init();
-    await Services.configSync.pullAll();
+    try {
+      await Services.init();
 
-    await Services.dayEntry.getOrCreate(_businessDateKey(_now));
+      try {
+        await Services.configSync.pullAll().timeout(const Duration(seconds: 8));
+      } catch (_) {}
 
-    todaysSales = await Services.sale.todayTotalAmount(includeDraft: false);
-    todaysExpense = Services.expense.todayFinalizedTotal;
-    todaysDelivery = await Services.delivery.todayTotalAmount(); 
-    
-    todaySaleCount = await Services.saleRepo.countTodaySubmitted();
-    todayDeliveryCount = await Services.deliveryRepo.countTodaySubmitted();
-    todayExpenseCount = await Services.expenseRepo.countTodaySubmitted();
-    final todayAlreadySent = Services.dayEntry.isDayAlreadySent(_businessDateKey(_now));
-    todaySettlementCount = await Services.settlement.todaySubmittedCount(_businessDateKey(_now), todayAlreadySent);
+      await Services.dayEntry.getOrCreate(_businessDateKey(_now));
 
-    final dipDraftCount = await Services.tankDip
-    .countForBusinessDate(_businessDateKey(_now));
-    _hasTankDipDrafts = dipDraftCount > 0;
+      todaysSales = await Services.sale.todayTotalAmount(includeDraft: false);
+      todaysExpense = Services.expense.todayFinalizedTotal;
+      todaysDelivery = await Services.delivery.todayTotalAmount();
 
-    todayTankDipCount = await Services.tankDip
-        .countSubmittedForBusinessDate(_businessDateKey(_now));
-    
+      todaySaleCount = await Services.saleRepo.countTodaySubmitted();
+      todayDeliveryCount = await Services.deliveryRepo.countTodaySubmitted();
+      todayExpenseCount = await Services.expenseRepo.countTodaySubmitted();
+      final todayAlreadySent = Services.dayEntry.isDayAlreadySent(_businessDateKey(_now));
+      todaySettlementCount = await Services.settlement.todaySubmittedCount(_businessDateKey(_now), todayAlreadySent);
 
-    await _loadWeeklyFromDayEntryCache();
+      final dipDraftCount = await Services.tankDip.countForBusinessDate(_businessDateKey(_now));
+      _hasTankDipDrafts = dipDraftCount > 0;
 
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-    });
+      todayTankDipCount = await Services.tankDip.countSubmittedForBusinessDate(_businessDateKey(_now));
+
+      await _loadWeeklyFromDayEntryCache();
+    } catch (e) {
+      debugPrint('_initializeData failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load app data: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() { _loading = false; });
+    }
   }
 
   // =====================
@@ -331,6 +321,7 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     );
   }
 
+
   Future<void> _showDatePickerDialog(List<de.DayEntry> unsent) async {
     final picked = await showDialog<de.DayEntry>(
       context: context,
@@ -388,6 +379,25 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
     if (picked == null) return;
 
     await _showSendConfirmDialog(picked, unsent);
+  }
+
+  Future<void> _exportCsv() async {
+    final csv = await Services.csvExport.exportAllAsCsv();
+
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save Historical Data',
+      fileName: 'fuelflow-historical-${DateTime.now().toIso8601String().split("T").first}.csv',
+      type: FileType.custom,
+      allowedExtensions: ['csv'],
+    );
+    if (path == null) return;
+
+    await File(path).writeAsString(csv);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Historical data exported'), backgroundColor: Colors.green),
+    );
   }
 
   String _sectionsSummary(de.DayEntry entry) {
@@ -1085,10 +1095,11 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
         final isTight = c.maxWidth < 900;
 
         final logoPath = Services.appSettings.logoPath;
+          final hasValidLogo = logoPath != null && File(logoPath).existsSync() && File(logoPath).lengthSync() > 0;
           final title = Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (logoPath != null) ...[
+              if (hasValidLogo) ...[
                 CircleAvatar(radius: 18, backgroundImage: FileImage(File(logoPath))),
                 const SizedBox(width: 10),
               ],
@@ -1169,16 +1180,27 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
   Widget _buildProBadge() {
     final sub = Services.subscription.cached;
     final active = sub?.isActive ?? true; // benefit of the doubt until first check completes
+    final isTrial = sub?.plan == 'trial';
+
+    final badgeColor = !active
+        ? Colors.redAccent
+        : isTrial
+            ? Colors.cyan
+            : Colors.amber;
+
+    final badgeLabel = !active ? 'EXPIRED' : (isTrial ? 'TRIAL' : 'PRO');
+
     return InkWell(
       onTap: () => showDialog(
         context: context,
         builder: (_) => AlertDialog(
           backgroundColor: const Color(0xFF0f172a),
-          title: Text(active ? 'Pro Plan' : 'Plan Expired', style: const TextStyle(color: Colors.white)),
+          title: Text(
+            !active ? 'Plan Expired' : (isTrial ? 'Free Trial' : 'Pro Plan'),
+            style: const TextStyle(color: Colors.white),
+          ),
           content: Text(
-            sub != null
-                ? '${sub.plan.toUpperCase()} — ${active ? 'active until' : 'expired on'} ${DateFormat('MMM d, yyyy').format(sub.expiresAt)}'
-                : 'Checking...',
+            _subscriptionMessage(sub, active, isTrial),
             style: const TextStyle(color: Colors.white70),
           ),
           actions: [ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
@@ -1187,14 +1209,35 @@ class _FuelAdminFinalState extends State<FuelAdminFinal>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: (active ? Colors.amber : Colors.redAccent).withOpacity(0.15),
+          color: badgeColor.withOpacity(0.15),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: (active ? Colors.amber : Colors.redAccent).withOpacity(0.4)),
+          border: Border.all(color: badgeColor.withOpacity(0.4)),
         ),
-        child: Text(active ? 'PRO' : 'EXPIRED',
-            style: TextStyle(color: active ? Colors.amber : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+        child: Text(badgeLabel,
+            style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 11)),
       ),
     );
+  }
+
+  String _subscriptionMessage(SubscriptionStatus? sub, bool active, bool isTrial) {
+    if (sub == null) return 'Checking...';
+
+    final dateStr = DateFormat('MMM d, yyyy').format(sub.expiresAt);
+
+    if (!active) {
+      return "${sub.plan.toUpperCase()} — expired on $dateStr. Contact your provider to renew.";
+    }
+
+    if (isTrial) {
+      final daysLeft = sub.expiresAt.difference(DateTime.now()).inDays;
+      final dayWord = daysLeft == 1 ? 'day' : 'days';
+      final daysLine = daysLeft <= 0
+          ? "Last day of your free trial — expires today ($dateStr)."
+          : "$daysLeft $dayWord left in your free trial (expires $dateStr).";
+      return "$daysLine Contact your provider to upgrade to Pro before it expires.";
+    }
+
+    return "PRO — active until $dateStr";
   }
 
   // =====================

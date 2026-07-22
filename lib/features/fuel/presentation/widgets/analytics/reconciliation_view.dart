@@ -30,6 +30,12 @@ class _AnalyticsReconciliationViewState
   bool _loadingPumps = true;
   List<_PumpDayRecord> _pumpRecords = [];
 
+  bool _loadingMeterContinuity = true;
+  List<MeterContinuityIssue> _meterContinuityIssues = [];
+
+  bool _loadingTankDipVariance = true;
+  List<TankDipVariance> _tankDipVariances = [];
+
   // Tank table sort
   String _tankSort = 'Date'; // 'Date' | 'Gap' | 'Status'
   // Pump table sort
@@ -62,10 +68,17 @@ class _AnalyticsReconciliationViewState
   }
 
   Future<void> _load() async {
-    setState(() { _loadingReconciliation = true; _loadingPumps = true; });
+    setState(() {
+      _loadingReconciliation = true;
+      _loadingPumps = true;
+      _loadingMeterContinuity = true;
+      _loadingTankDipVariance = true;
+    });
     final range = _computeDateRange();
     final recon = await Services.reconciliation.computeAll(fromDate: range['from'], toDate: range['to']);
     final pumps = await _fetchPumpRecords(range['from'], range['to']);
+    final meterIssues = await Services.reconciliation.checkMeterContinuity(fromDate: range['from'], toDate: range['to']);
+    final dipVariances = await Services.reconciliation.checkTankDipVariance(fromDate: range['from'], toDate: range['to']);
     if (!mounted) return;
     setState(() {
       _reconciliation = recon;
@@ -75,6 +88,10 @@ class _AnalyticsReconciliationViewState
       }
       _pumpRecords = _computeMeterGaps(pumps);
       _loadingPumps = false;
+      _meterContinuityIssues = meterIssues;
+      _loadingMeterContinuity = false;
+      _tankDipVariances = dipVariances;
+      _loadingTankDipVariance = false;
     });
   }
 
@@ -261,6 +278,25 @@ class _AnalyticsReconciliationViewState
             // Row 2: Shortage Analysis full width
             _buildShortageAnalysis(),
             const SizedBox(height: 20),
+
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(flex: 3, child: _buildTankSection()),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 3, child: _buildPumpSection()),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildShortageAnalysis(),
+            const SizedBox(height: 20),
+            _buildMeterContinuitySection(),
+            const SizedBox(height: 20),
+            _buildTankDipVarianceSection(),
+            const SizedBox(height: 20),
+            if (_filtered.isNotEmpty) _buildReconciliationInsights(_filtered),
             // Row 3: Reconciliation Insights full width
             if (_filtered.isNotEmpty) _buildReconciliationInsights(_filtered),
           ],
@@ -702,6 +738,152 @@ class _AnalyticsReconciliationViewState
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMeterContinuitySection() {
+    if (_loadingMeterContinuity) {
+      return Container(
+        decoration: BoxDecoration(color: panelBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: panelBorder)),
+        padding: const EdgeInsets.all(20),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(color: panelBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: panelBorder)),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('Meter Continuity', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: (_meterContinuityIssues.isEmpty ? Colors.greenAccent : Colors.redAccent).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _meterContinuityIssues.isEmpty ? 'Clean' : '${_meterContinuityIssues.length} issue(s)',
+                style: TextStyle(
+                  color: _meterContinuityIssues.isEmpty ? Colors.greenAccent : Colors.redAccent,
+                  fontSize: 9, fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          const Text(
+            "Checks that each pump's opening reading matches the previous business date's closing reading. A mismatch may indicate a missed reading, meter reset, or tampering.",
+            style: TextStyle(color: textSecondary, fontSize: 11),
+          ),
+          const SizedBox(height: 12),
+          if (_meterContinuityIssues.isEmpty)
+            const Text('No continuity issues found for this period.', style: TextStyle(color: textSecondary, fontSize: 12))
+          else
+            Column(
+              children: _meterContinuityIssues.map((issue) {
+                final gapColor = issue.gap.abs() > 50 ? Colors.redAccent : Colors.orange;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: gapColor, size: 14),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Pump ${issue.pumpNo}: closed at ${issue.previousClosing.toStringAsFixed(0)} on ${issue.previousDate}, '
+                          'opened at ${issue.currentOpening.toStringAsFixed(0)} on ${issue.currentDate} '
+                          '(${issue.gap >= 0 ? '+' : ''}${issue.gap.toStringAsFixed(0)}L)',
+                          style: TextStyle(color: gapColor, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTankDipVarianceSection() {
+    if (_loadingTankDipVariance) {
+      return Container(
+        decoration: BoxDecoration(color: panelBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: panelBorder)),
+        padding: const EdgeInsets.all(20),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final significant = _tankDipVariances.where((v) => v.isSignificant).toList();
+    final sorted = [..._tankDipVariances]..sort((a, b) => b.businessDate.compareTo(a.businessDate));
+
+    return Container(
+      decoration: BoxDecoration(color: panelBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: panelBorder)),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('Tank Dip vs System Level', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: (significant.isEmpty ? Colors.greenAccent : Colors.redAccent).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                significant.isEmpty ? 'Clean' : '${significant.length} flagged',
+                style: TextStyle(
+                  color: significant.isEmpty ? Colors.greenAccent : Colors.redAccent,
+                  fontSize: 9, fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          const Text(
+            'Cross-checks physically-measured Tank Dip readings against the recorded system tank level for the same day — an independent check that can catch losses a sales/delivery calculation alone would miss.',
+            style: TextStyle(color: textSecondary, fontSize: 11),
+          ),
+          const SizedBox(height: 12),
+          if (sorted.isEmpty)
+            const Text('No Tank Dip readings recorded for this period.', style: TextStyle(color: textSecondary, fontSize: 12))
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Table(
+                columnWidths: const {0: FixedColumnWidth(100), 1: FixedColumnWidth(70), 2: FixedColumnWidth(100), 3: FixedColumnWidth(100), 4: FixedColumnWidth(90)},
+                children: [
+                  TableRow(children: ['Date', 'Fuel', 'Dip Reading', 'System Level', 'Variance']
+                      .map((h) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Text(h, style: const TextStyle(color: textSecondary, fontWeight: FontWeight.w600, fontSize: 11)),
+                          ))
+                      .toList()),
+                  ...sorted.map((v) {
+                    final color = v.isSignificant ? Colors.redAccent : Colors.greenAccent;
+                    return TableRow(children: [
+                      Padding(padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Text(v.businessDate, style: const TextStyle(color: textPrimary, fontSize: 11))),
+                      Text(v.fuelType, style: const TextStyle(color: textPrimary, fontSize: 11)),
+                      Text(v.dipReading.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 11)),
+                      Text(v.systemLevel.toStringAsFixed(0), style: const TextStyle(color: textPrimary, fontSize: 11)),
+                      Text('${v.variance >= 0 ? '+' : ''}${v.variance.toStringAsFixed(0)} L',
+                          style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+                    ]);
+                  }),
+                ],
+              ),
+            ),
         ],
       ),
     );

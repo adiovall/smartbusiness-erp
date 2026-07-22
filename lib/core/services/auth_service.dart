@@ -20,10 +20,6 @@ class AuthService with ChangeNotifier {
 
   SupabaseClient get _supabase => Supabase.instance.client;
 
-  /// Best-effort check of whether the CURRENTLY logged-in account's
-  /// Supabase email is confirmed. Never blocks anything — local login
-  /// stays fully independent of this. Returns null if it can't be
-  /// determined (offline, no session, etc.) rather than assuming either way.
   bool? get isEmailConfirmed {
     final supaUser = _supabase.auth.currentUser;
     if (supaUser == null) return null;
@@ -43,13 +39,13 @@ class AuthService with ChangeNotifier {
     return sha256.convert(bytes).toString();
   }
 
-  /// Registers the account with Supabase Auth first (requires internet —
-  /// this is the deliberate "online once, at creation" checkpoint). Only
-  /// once that succeeds do we create the matching local record, so local
-  /// and cloud never drift out of sync with each other.
-  Future<void> _registerWithSupabase(String email, String password) async {
+  // _registerWithSupabase gains an optional metadata param
+  Future<String> _registerWithSupabase(String email, String password, {Map<String, dynamic>? data}) async {
     try {
-      await _supabase.auth.signUp(email: email, password: password);
+      final response = await _supabase.auth.signUp(email: email, password: password, data: data);
+      final id = response.user?.id;
+      if (id == null) throw Exception('Cloud registration did not return a user id.');
+      return id;
     } on AuthException catch (e) {
       throw Exception('Cloud registration failed: ${e.message}');
     } on SocketException {
@@ -61,6 +57,10 @@ class AuthService with ChangeNotifier {
     }
   }
 
+  /// Creates an Owner (Admin) account. Station identity for an Owner is
+  /// simply their own Supabase auth uid — no separate stations table
+  /// needed. station_members gets one row so RLS lookups stay uniform
+  /// across Owners and Managers.
   Future<UserRecord> createOwnerAccount({
     required String email,
     required String password,
@@ -77,7 +77,7 @@ class AuthService with ChangeNotifier {
     final existing = await repo.fetchByEmail(cleanEmail);
     if (existing != null) throw Exception('An account with this email already exists');
 
-    await _registerWithSupabase(cleanEmail, password);
+    final supabaseUserId = await _registerWithSupabase(cleanEmail, password, data: {'role': 'owner'});
 
     final salt = _generateSalt();
     final user = UserRecord(
@@ -96,7 +96,7 @@ class AuthService with ChangeNotifier {
     return user;
   }
 
-  static const _webResetUrl = 'https://fuelflow-dashboard-rho.vercel.app/reset-password'; // fill in your real deployed URL
+  static const _webResetUrl = 'https://fuelflow-dashboard-rho.vercel.app/reset-password';
 
   Future<void> requestAdminPasswordReset(String email) async {
     try {
@@ -106,8 +106,6 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  /// After resetting on the web dashboard, verifies the new password
-  /// against Supabase and updates this device's local hash to match.
   Future<void> syncPasswordAfterCloudReset({required String email, required String newPassword}) async {
     final cleanEmail = email.trim().toLowerCase();
     try {
@@ -132,15 +130,6 @@ class AuthService with ChangeNotifier {
     await repo.updatePassword(userId, hash, salt);
   }
 
-  /// Only callable by a logged-in Owner. UI should only expose this via
-  /// an Owner-gated "Manage Staff" screen; re-checked here as a safety net.
-  ///
-  /// NOTE: Supabase's client-side signUp() automatically switches the
-  /// active cloud session to the newly created account, so after this
-  /// call the ambient Supabase session belongs to the new Manager, not
-  /// the Owner who created it. Harmless today (RLS only checks "is
-  /// authenticated"), but worth knowing if role-specific cloud behavior
-  /// gets added later.
   Future<UserRecord> createManagerAccount({
     required String email,
     required String password,
@@ -159,12 +148,10 @@ class AuthService with ChangeNotifier {
     final existing = await repo.fetchByEmail(cleanEmail);
     if (existing != null) throw Exception('An account with this email already exists');
 
-    // Manager accounts are local-only — no Supabase registration needed.
-    // Send Data checks for an active Supabase session on the device as
-    // a whole (via SyncService.hasSupabaseSession), not per-user, and
-    // the Owner's own account already establishes that session. Manager
-    // password recovery is handled locally by the Owner (Manage Staff),
-    // so there's no cloud dependency Manager accounts actually need.
+    // Manager accounts created this way (by an Owner already logged in
+    // on this same device) are local-only — no separate Supabase
+    // identity, no station_members row needed, since Send Data on this
+    // device already uses the Owner's own cloud session/station.
 
     final salt = _generateSalt();
     final user = UserRecord(
@@ -182,9 +169,6 @@ class AuthService with ChangeNotifier {
     return user;
   }
 
-  /// Local, offline login — checked against the hashed credential stored
-  /// on this device. This is the everyday login path and never touches
-  /// the network.
   Future<UserRecord?> login({required String email, required String password}) async {
     final cleanEmail = email.trim().toLowerCase();
     final user = await repo.fetchByEmail(cleanEmail);
@@ -198,9 +182,6 @@ class AuthService with ChangeNotifier {
     return user;
   }
 
-  /// Cloud re-authentication — only needed when Send Data can't find a
-  /// valid Supabase session (e.g. expired/cleared session on a machine
-  /// that's been offline a while). Does not touch or replace local login.
   Future<void> signInToCloud({required String email, required String password}) async {
     try {
       await _supabase.auth.signInWithPassword(
@@ -221,25 +202,27 @@ class AuthService with ChangeNotifier {
     notifyListeners();
   }
 
-  /// Registers the CURRENTLY LOGGED-IN local account with Supabase after
-  /// the fact — for accounts created before cloud registration was wired
-  /// in, or a fresh install missing its session. Owner-only, since Owner
-  /// is the identity whose Supabase session backs Send Data for the
-  /// whole device.
   Future<void> linkCurrentAccountToCloud({required String password}) async {
     if (!isOwner) throw Exception('Only the Owner account can be linked to the cloud');
     final user = _currentUser;
     if (user == null) throw Exception('Not logged in');
 
-    // Verify the password matches this device's local record before
-    // sending it to Supabase — prevents linking with a mistyped password
-    // that would otherwise silently create a mismatched cloud account.
     final hash = _hash(password, user.salt);
     if (hash != user.passwordHash) {
       throw Exception('Incorrect password');
     }
 
-    await _registerWithSupabase(user.email, password);
+    final supabaseUserId = await _registerWithSupabase(user.email, password);
+
+    try {
+      await _supabase.from('station_members').insert({
+        'user_id': supabaseUserId,
+        'station_id': supabaseUserId,
+        'role': 'owner',
+      });
+    } catch (e) {
+      throw Exception('Linked to the cloud but station setup failed. Contact support.');
+    }
   }
 
   Future<List<UserRecord>> fetchAllStaff() => repo.fetchAll();
@@ -255,19 +238,26 @@ class AuthService with ChangeNotifier {
 
   String _generateToken() {
     final rand = Random.secure();
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final code = List.generate(8, (_) => chars[rand.nextInt(chars.length)]).join();
     return 'MGR-$code';
   }
 
-  /// Owner-only. Requires internet — writes the token to Supabase so a
-  /// Manager on a different device can validate it before she has any
-  /// session of her own.
+  /// Owner-only. Stamps the token with the Owner's own uid as its
+  /// station_id, so a Manager registering with this token later ends up
+  /// in the right station.
   Future<String> generateManagerToken() async {
     if (!isOwner) throw Exception('Only the Owner can generate manager tokens');
+    final stationId = _supabase.auth.currentUser?.id;
+    if (stationId == null) throw Exception('No active cloud session. Sign in to the cloud first.');
+
     final token = _generateToken();
     try {
-      await _supabase.from('manager_tokens').insert({'token': token, 'status': 'unused'});
+      await _supabase.from('manager_tokens').insert({
+        'token': token,
+        'status': 'unused',
+        'station_id': stationId,
+      });
     } catch (e) {
       throw Exception('Could not generate token. Check your internet connection.');
     }
@@ -280,10 +270,10 @@ class AuthService with ChangeNotifier {
     return List<Map<String, dynamic>>.from(rows);
   }
 
-  /// Used on a Manager's OWN separate device, which has no local Owner or
-  /// Manager account yet. Validates the token, registers this Manager's
-  /// own Supabase identity (the one online step), marks the token used,
-  /// then creates her local account for offline login from now on.
+  /// Used on a Manager's OWN separate device. Validates the token,
+  /// registers her own Supabase identity, joins her to her Owner's
+  /// station via station_members, marks the token used, then creates
+  /// her local account for offline login from now on.
   Future<UserRecord> registerManagerWithToken({
     required String token,
     required String email,
@@ -312,7 +302,19 @@ class AuthService with ChangeNotifier {
       throw Exception('This token has already been used. Ask your Owner for a new one.');
     }
 
-    await _registerWithSupabase(cleanEmail, password);
+    final stationId = tokenRow['station_id'] as String?;
+    if (stationId == null) {
+      throw Exception('This token is missing station info. Ask your Owner to generate a new one.');
+    }
+
+    final managerUserId = await _registerWithSupabase(
+      cleanEmail,
+      password,
+      data: {'role': 'manager', 'station_id': stationId},
+    );
+    // station_members row for this Manager is created automatically by
+    // the on_auth_user_created Postgres trigger, using the station_id
+    // passed above as signup metadata — no client write needed here.
 
     await _supabase.from('manager_tokens').update({
       'status': 'used',
@@ -338,5 +340,20 @@ class AuthService with ChangeNotifier {
     _currentUser = user;
     notifyListeners();
     return user;
+  }
+
+  /// Resolves the current cloud session's station_id, for use by
+  /// SyncService / ConfigSyncService / SubscriptionService when
+  /// stamping or scoping cloud reads and writes.
+  Future<String?> resolveStationId() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return null;
+    try {
+      final rows = await _supabase.from('station_members').select('station_id').eq('user_id', uid).limit(1);
+      if (rows.isEmpty) return null;
+      return rows.first['station_id'] as String?;
+    } catch (_) {
+      return null;
+    }
   }
 }

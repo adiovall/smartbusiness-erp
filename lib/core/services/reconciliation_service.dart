@@ -28,6 +28,42 @@ class FuelDayReconciliation {
   });
 }
 
+class MeterContinuityIssue {
+  final String pumpNo;
+  final String previousDate;
+  final double previousClosing;
+  final String currentDate;
+  final double currentOpening;
+
+  MeterContinuityIssue({
+    required this.pumpNo,
+    required this.previousDate,
+    required this.previousClosing,
+    required this.currentDate,
+    required this.currentOpening,
+  });
+
+  double get gap => currentOpening - previousClosing;
+}
+
+class TankDipVariance {
+  final String businessDate;
+  final String fuelType;
+  final double dipReading;
+  final double systemLevel;
+  final bool isSignificant;
+
+  TankDipVariance({
+    required this.businessDate,
+    required this.fuelType,
+    required this.dipReading,
+    required this.systemLevel,
+    required this.isSignificant,
+  });
+
+  double get variance => dipReading - systemLevel;
+}
+
 /// Reads live from Supabase instead of the local outbox — same public
 /// API (computeAll with the same params and return type), so
 /// reconciliation_view.dart doesn't need any changes.
@@ -130,5 +166,70 @@ class ReconciliationService {
     }
 
     return results;
+  }
+
+  Future<List<MeterContinuityIssue>> checkMeterContinuity({String? fromDate, String? toDate, double toleranceLiters = 0.5}) async {
+    final rows = await _client.from('sales').select('business_date, pump_no, opening, closing');
+
+    final byPump = <String, List<Map<String, dynamic>>>{};
+    for (final r in rows) {
+      final date = r['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final pump = (r['pump_no'] as String?) ?? 'Unknown';
+      byPump.putIfAbsent(pump, () => []).add(r);
+    }
+
+    final issues = <MeterContinuityIssue>[];
+    for (final entry in byPump.entries) {
+      final sorted = entry.value..sort((a, b) => (a['business_date'] as String).compareTo(b['business_date'] as String));
+      for (int i = 1; i < sorted.length; i++) {
+        final prev = sorted[i - 1];
+        final curr = sorted[i];
+        final prevClosing = (prev['closing'] as num).toDouble();
+        final currOpening = (curr['opening'] as num).toDouble();
+
+        if ((currOpening - prevClosing).abs() > toleranceLiters) {
+          issues.add(MeterContinuityIssue(
+            pumpNo: entry.key,
+            previousDate: prev['business_date'] as String,
+            previousClosing: prevClosing,
+            currentDate: curr['business_date'] as String,
+            currentOpening: currOpening,
+          ));
+        }
+      }
+    }
+    return issues;
+  }
+
+  Future<List<TankDipVariance>> checkTankDipVariance({String? fromDate, String? toDate, double toleranceLiters = 50}) async {
+    final dips = await _client.from('tank_dips').select('business_date, fuel_type, closing_level');
+    final snapshots = await _client.from('tank_snapshots').select('business_date, fuel_type, current_level');
+
+    final snapshotByKey = <String, double>{};
+    for (final s in snapshots) {
+      final key = '${s['business_date']}_${FuelMapping.tankKey(s['fuel_type'] as String)}';
+      snapshotByKey[key] = (s['current_level'] as num).toDouble();
+    }
+
+    final result = <TankDipVariance>[];
+    for (final d in dips) {
+      final date = d['business_date'] as String;
+      if (!_inRange(date, fromDate, toDate)) continue;
+      final fuel = FuelMapping.tankKey(d['fuel_type'] as String);
+      final key = '${date}_$fuel';
+      final systemLevel = snapshotByKey[key];
+      if (systemLevel == null) continue;
+
+      final dipReading = (d['closing_level'] as num).toDouble();
+      result.add(TankDipVariance(
+        businessDate: date,
+        fuelType: fuel,
+        dipReading: dipReading,
+        systemLevel: systemLevel,
+        isSignificant: (dipReading - systemLevel).abs() > toleranceLiters,
+      ));
+    }
+    return result;
   }
 }
